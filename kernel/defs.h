@@ -33,7 +33,8 @@ void            fileinit(void);
 int             fileread(struct file*, uint64, int n);
 int             filestat(struct file*, uint64 addr);
 int             filewrite(struct file*, uint64, int n);
-
+int             kfileread(struct file*, uint64, int n);
+int             kfilewrite(struct file*, uint64, int n);
 // fs.c
 void            fsinit(int);
 int             dirlink(struct inode*, char*, uint);
@@ -53,6 +54,10 @@ int             readi(struct inode*, int, uint64, uint, uint);
 void            stati(struct inode*, struct stat*);
 int             writei(struct inode*, int, uint64, uint, uint);
 void            itrunc(struct inode*);
+int		        createSwapFile(struct proc* p);
+int	          	readFromSwapFile(struct proc * p, char* buffer, uint placeOnFile, uint size);
+int		        writeToSwapFile(struct proc* p, char* buffer, uint placeOnFile, uint size);
+int		        removeSwapFile(struct proc* p);
 
 // ramdisk.c
 void            ramdiskinit(void);
@@ -139,6 +144,10 @@ int             argaddr(int, uint64 *);
 int             fetchstr(uint64, char*, int);
 int             fetchaddr(uint64, uint64*);
 void            syscall();
+
+// sysfile
+struct inode*	create(char *path, short type, short major, short minor);
+int				isdirempty(struct inode *dp);
 
 // trap.c
 extern uint     ticks;
