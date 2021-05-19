@@ -5,6 +5,9 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+//added
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -427,5 +430,87 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return 0;
   } else {
     return -1;
+  }
+}
+
+int find_file_to_remove(){
+  for(int i=0; i<32; i++){
+    if(myproc()->paging_meta_data[i].in_memory){
+      return i; 
+    }
+  }
+  return 0;
+}
+
+void swap_page_into_file(int offset){
+    struct proc * p = myproc();
+    int remove_file_indx = find_file_to_remove();
+    uint64 removed_page_VA = remove_file_indx*PGSIZE;
+    printf("chosen file %d \n", remove_file_indx);
+    pte_t *out_page_entry =  walk(p->pagetable, removed_page_VA, 0); 
+    //write the information from this file to memory
+    uint64 physical_addr = PTE2PA(*out_page_entry);
+    if(writeToSwapFile(p,(char*)PA2PTE(physical_addr),offset,PGSIZE) ==  -1)
+      panic("write to file failed");
+    //free the RAM memmory of the swapped page
+    kfree((void*)PA2PTE(physical_addr));
+    *out_page_entry = (*out_page_entry & (~PTE_V)) | PTE_PG;
+    p->paging_meta_data[remove_file_indx].offset = offset;
+    p->paging_meta_data[remove_file_indx].in_memory = 0;
+      
+}
+
+int get_num_of_pages_in_memory(){
+  int counter = 0;
+  for(int i=0; i<32; i++){
+    if(myproc()->paging_meta_data[i].in_memory)
+      counter = counter+1;
+  }
+  return counter; 
+}
+
+void page_in(uint64 faulting_address, pte_t * missing_pte_entry){
+  //get the page number of the missing in ram page
+  int current_page_number = PGROUNDDOWN(faulting_address)/PGSIZE;
+  //get its offset in the saved file
+  uint offset = myproc()->paging_meta_data[current_page_number].offset;
+  if(offset == -1){
+    panic("offset is -1");
+  }
+  //allocate a buffer for the information from the file
+  char* read_buffer;
+  if((read_buffer = kalloc()) == 0)
+    panic("not enough space to kalloc");
+  if (readFromSwapFile(myproc(),read_buffer ,offset,PGSIZE) == -1)
+    panic("read from file failed");
+  if(get_num_of_pages_in_memory() >= MAX_PSYC_PAGES){
+    swap_page_into_file(offset); //maybe adding it in the end of the swap
+    *missing_pte_entry = PTE2PA((uint64)read_buffer) | ((PTE_FLAGS(*missing_pte_entry)& ~PTE_PG) | PTE_V);
+  }  
+
+  else{
+      *missing_pte_entry = PTE2PA((uint64)read_buffer) | PTE_V; 
+  }
+  //update offsets and aging of the files
+  //myproc()->paging_meta_data[current_num_pages].aging = init_aging(current_num_pages);
+  myproc()->paging_meta_data[current_page_number].offset = -1;
+  myproc()->paging_meta_data[current_page_number].in_memory = 1;
+  sfence_vma(); //refresh TLB
+}
+
+void check_page_fault(){
+  uint64 faulting_address = r_stval(); 
+  pte_t * pte_entry = walk(myproc()->pagetable, PGROUNDDOWN(faulting_address), 0); //maybe doesn't have to pagedown 
+  if((!(PTE_FLAGS(*pte_entry) & PTE_V) ) & (PTE_FLAGS(*pte_entry) & PTE_PG)){
+    printf("Page Fault - Page was out of memory");
+    page_in(faulting_address, pte_entry);
+  }
+  /*
+  else if(!(*pte_entry & PTE_W)& (*pte_entry & PTE_COW)){
+     cprintf("Page Fault- COPY ON WRITE\n");
+     create_write_through(faulting_address, pte_entry);
+  }*/
+  else{
+    printf("went to file without permissions!!! %d\n", faulting_address);
   }
 }

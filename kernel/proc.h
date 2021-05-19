@@ -82,6 +82,13 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+//assign 3
+struct meta_data{
+  int offset; //offset in swapFile. -1 not in swapFile 
+  uint aging;  //for each algorithm will be treated differently 
+  int in_memory;
+};
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -107,4 +114,6 @@ struct proc {
   char name[16];               // Process name (debugging)
 
   struct file *swapFile;
+  struct meta_data paging_meta_data[32];
 };
+

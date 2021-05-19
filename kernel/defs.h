@@ -155,6 +155,8 @@ void            trapinit(void);
 void            trapinithart(void);
 extern struct spinlock tickslock;
 void            usertrapret(void);
+//assign3
+void            check_page_fault(void);
 
 // uart.c
 void            uartinit(void);
@@ -194,3 +196,4 @@ void            virtio_disk_intr(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+#define MAX_PSYC_PAGES 16
