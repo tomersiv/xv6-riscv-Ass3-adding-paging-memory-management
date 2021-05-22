@@ -155,8 +155,6 @@ void            trapinit(void);
 void            trapinithart(void);
 extern struct spinlock tickslock;
 void            usertrapret(void);
-//assign3
-void            check_page_fault(void);
 
 // uart.c
 void            uartinit(void);
@@ -182,7 +180,8 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
-
+void            handle_page_fault(void);
+void            swap_pages(uint64 faulting_address, pte_t *faulting_address_entry);    
 // plic.c
 void            plicinit(void);
 void            plicinithart(void);
@@ -196,4 +195,3 @@ void            virtio_disk_intr(void);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
-#define MAX_PSYC_PAGES 16
