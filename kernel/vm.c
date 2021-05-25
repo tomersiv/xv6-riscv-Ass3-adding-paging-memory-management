@@ -7,6 +7,7 @@
 #include "fs.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "queue.h"
 
 /*
  * the kernel's page table.
@@ -445,6 +446,91 @@ int copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+int calculate_NFUA_index()
+{
+  struct proc *p = myproc();
+  int minimum_page_index = 0;
+  uint minimum_age = -1;
+  for (int i = 3; i < MAX_TOTAL_PAGES; i++) //TODO: check why start from 3
+  {
+    if ((p->paging_info[i].stored) && ((p->paging_info[i].age < minimum_age) || (minimum_age == -1)))
+    {
+      minimum_page_index = i;
+      minimum_age = p->paging_info[i].age;
+    }
+  }
+  if(minimum_age != -1)
+  {
+    return minimum_page_index;
+  }
+  else
+  {
+    panic("failed to replace pages");
+  }
+}
+int calculate_LAPA_index()
+{
+  struct proc *p = myproc();
+  uint curr_age = -1;
+  int minimum_page_index = 0;
+  int minimum_ones = -1;
+  int curr_ones = -1;
+  uint minimum_age = -1;
+  int ones_counter;
+  uint temp_age = -1;
+  for(int i = 3; i < MAX_TOTAL_PAGES; i++)
+  {
+    if(p->paging_info[i].stored)
+    {
+      curr_age = p->paging_info[i].age;
+      temp_age = curr_age;
+
+      // count 1 bits
+      ones_counter = 0;
+      while(curr_age) 
+      {
+        ones_counter += curr_age & 1;
+        curr_age >>= 1;
+      }
+      curr_age = temp_age;
+      if((minimum_ones == ones_counter && curr_age < minimum_age) || (ones_counter < minimum_ones) || (minimum_ones == -1)) 
+      {
+        minimum_page_index = i;
+        minimum_ones = ones_counter;
+        minimum_age = curr_age;
+      }
+    }
+  }
+  if(minimum_ones != -1)
+  {
+    return minimum_page_index;
+  }
+  else
+  {
+    panic("failed to replace pages");
+  }
+}
+int calculate_SCFIFO_index()
+{
+  struct proc *p = myproc();
+  int initial_size = p->queue.size;
+  for(int i = 0; i < initial_size; i++)
+  {
+    pte_t *pte = walk(p->pagetable, PGSIZE * (p->queue.q[p->queue.front]), 0);
+
+    // if the access bit is turend on, give the page a second chance
+    if(PTE_A & *pte)
+    {
+      front_to_rear(p->queue.q); // move the front item to rear
+      *pte &= ~PTE_A; // turn off access bit
+    }
+    else
+    {
+      break;
+    }
+  }
+  return dequeue(p->queue.q);
+}
 
 void handle_page_fault()
 {
@@ -453,13 +539,13 @@ void handle_page_fault()
   pte_t *faulting_address_entry = walk(p->pagetable, PGROUNDDOWN(faulting_address), 0); //TODO maybe doesn't need to PGROUNDDOWN
   if (faulting_address_entry)
   {
-    if (((*faulting_address_entry) & (PTE_V == 0)) && (*faulting_address_entry & PTE_PG))
+    if (((*faulting_address_entry) & (PTE_V == 0)) && (*faulting_address_entry & PTE_PG)) // TODO: check PTE_PG
     {
       // valid is off and page is in secondary memory - import page from Swapfile
       swap_pages(faulting_address, faulting_address_entry);
     }
   }
-  // lazy allocation
+  // TODO: lazy allocation
 
   exit(0);
 }
@@ -472,8 +558,8 @@ void swap_pages(uint64 faulting_address, pte_t *faulting_address_entry)
 
   if (faulting_address_offset != -1)
   {
-    char* faulted_page = kalloc();
-    if(faulted_page == 0)
+    char *faulted_page = kalloc();
+    if (faulted_page == 0)
     {
       panic("kalloc");
     }
@@ -496,36 +582,43 @@ void swap_pages(uint64 faulting_address, pte_t *faulting_address_entry)
     }
     else // swap pages from main memory to Swapfile
     {
-      // set the faulted address entry in the main memory
-      *faulting_address_entry = PA2PTE((uint64)faulted_page) | (PTE_V | (~PTE_PG & PTE_FLAGS(*faulting_address_entry))); //TODO check if commutative
-
       // now we write the page to the secondary memory (Swapfile).
 
       // TODO: we need to swap pages according to replacement algorithms,
       // now we will replace the first page only for checking task 1.
-      uint64 swapped_page_va = 0;
       int swapped_page_index = 0;
-      for (int i = 0; i < MAX_TOTAL_PAGES; i++)
-      {
-        if (p->paging_info[i].stored)
-        {
-          swapped_page_va = i * PGSIZE;
-          swapped_page_index = i;
-          break;
-        }
-      }
+
+#if SELECTION == NFUA // Todo: change to ifdef
+      swapped_page_index = calculate_NFUA_index();
+#endif
+
+#if SELECTION == LAPA // Todo: change to ifdef
+      swapped_page_index = calculate_LAPA_index();
+#endif
+
+#if SELECTION == SCFIFO // Todo: change to ifdef
+      swapped_page_index = calculate_SCFIFO_index();
+#endif
+return 0;
+
+      uint64 swapped_page_va = swapped_page_index * PGSIZE;
+
       pte_t *swapped_page_entry = walk(p->pagetable, swapped_page_va, 0); //TODO: minimize to one line
       uint64 swapped_page_PA = PTE2PA(*swapped_page_entry);
-      if(writeToSwapFile(p, (char*)swapped_page_PA, faulting_address_offset, PGSIZE) == -1)
+      if (writeToSwapFile(p, (char *)swapped_page_PA, faulting_address_offset, PGSIZE) == -1)
       {
         printf("failed to write the swapped page to Swapfile");
       }
-      *swapped_page_entry = (*swapped_page_entry & (~PTE_V)) | PTE_PG;
+      *swapped_page_entry = (*swapped_page_entry & (~PTE_V)) | PTE_PG;// TODO: check PTE_PG
       p->paging_info[swapped_page_index].stored = 0;
       p->paging_info[swapped_page_index].offset = faulting_address_offset;
-      kfree((void*)swapped_page_PA); // TODO: check if needed
+
+      // set the faulted address entry in the main memory
+      *faulting_address_entry = PA2PTE((uint64)faulted_page) | (PTE_V | (~PTE_PG & PTE_FLAGS(*faulting_address_entry))); //TODO check if commutative
+                                                                                                                         // TODO: check PTE_PG
+      kfree((void *)swapped_page_PA); // TODO: check if needed
     }
-    // page is no longer in Swapfile, so need to update 
+    // page is no longer in Swapfile, so need to update
     p->paging_info[faulted_page_index].stored = 1;
     p->paging_info[faulted_page_index].offset = -1;
     sfence_vma();

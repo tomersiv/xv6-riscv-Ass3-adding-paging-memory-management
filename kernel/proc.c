@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "queue.h"
 
 struct cpu cpus[NCPU];
 
@@ -17,6 +18,7 @@ struct spinlock pid_lock;
 
 extern void forkret(void);
 static void freeproc(struct proc *p);
+void update_age(void);
 
 extern char trampoline[]; // trampoline.S
 
@@ -131,6 +133,7 @@ found:
   {
     data->offset = -1;
     data->stored = 0;
+    data->age = 0;
   }
 
   // Allocate a trapframe page.
@@ -269,18 +272,14 @@ int growproc(int n) //TODO: maybe need to change
   struct proc *p = myproc();
 
   sz = p->sz;
-  if (n > 0)
-  {
-    if ((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0)
-    {
-      return -1;
-    }
-  }
-  else if (n < 0)
+  if (n < 0)
   {
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
-  p->sz = sz;
+
+  // we use lazy allocation, so in case of n > 0 we only increase p->sz by n,
+  // allocation will take place when checking for page fault
+  p->sz += n;
   return 0;
 }
 // Create a new process, copying the parent.
@@ -349,6 +348,7 @@ int fork(void)
   {
     np->paging_info[i].offset = p->paging_info[i].offset;
     np->paging_info[i].stored = p->paging_info[i].stored;
+    np->paging_info[i].age = p->paging_info[i].age;
   }
 
   // increment reference counts on open file descriptors.
@@ -524,7 +524,14 @@ void scheduler(void)
         p->state = RUNNING;
         c->proc = p;
         swtch(&c->context, &p->context);
+        // task 2 - update age field for each page_data in p->paging_info array
+        #if SELECTION == NFUA // Todo: change to ifdef
+        update_age();
+        #endif
 
+        #if SELECTION == LAPA // Todo: change to ifdef
+        update_age();
+        #endif
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
@@ -726,5 +733,28 @@ void procdump(void)
       state = "???";
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
+  }
+}
+
+void update_age() {
+  struct proc *p = myproc();
+
+  for (int i = 0; i < MAX_TOTAL_PAGES; i++) {
+    uint va = PGSIZE * i;
+    pte_t *pte = walk(p->pagetable, va, 0);
+    
+    // if the page is in RAM (valid bit is on) shift it's age one bit to the right
+    if (PTE_V & *pte) {
+      uint new_age = p->paging_info[i].age;
+      new_age = new_age >> 1;
+
+      // if the page was just accessed turn off it's access bit and turn on the MSB
+      // in it's age
+      if (PTE_A & *pte) {
+        *pte = (~PTE_A) & *pte;
+        new_age = (1 << 31) | new_age;
+      }
+      p->paging_info[i].age = new_age;
+    }
   }
 }

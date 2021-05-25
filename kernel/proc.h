@@ -1,3 +1,5 @@
+struct queue;
+
 // Saved registers for kernel context switches.
 struct context {
   uint64 ra;
@@ -86,6 +88,7 @@ enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 struct page_data {
   int stored; // flag that indicates if the page is in the main memory
   int offset; // offset in Swapfile
+  uint age; // age parameter for the different algorithms
 };
 
 // Per-process state
@@ -115,4 +118,6 @@ struct proc {
   struct file *swapFile;
   // task 1.1 - array for paging data
   struct page_data paging_info[32];
+  // task 2 - queue for second chance fifo page replacement algorithm 
+  struct queue queue;
 };
