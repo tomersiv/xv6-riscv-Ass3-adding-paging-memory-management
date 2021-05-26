@@ -1,3 +1,6 @@
+#ifndef QUEUE_H
+#define QUEUE_H
+
 struct queue {
   int front; // first element in the queue
   int rear; // last element in the queue
@@ -8,3 +11,5 @@ struct queue {
 void enqueue(struct queue* queue, int item);
 int dequeue(struct queue* queue);
 void front_to_rear(struct queue *queue);
+
+#endif

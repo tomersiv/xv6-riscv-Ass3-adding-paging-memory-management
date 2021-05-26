@@ -1,4 +1,4 @@
-struct queue;
+#include "queue.h"
 
 // Saved registers for kernel context switches.
 struct context {
