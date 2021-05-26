@@ -128,6 +128,12 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
+  // task 2 - initialize process queue
+  p->queue.size = 0;
+  p->queue.front = 0;
+  p->queue.rear = -1;
+
+  // task 1.3 - initialize paging info
   struct page_data *data;
   for (data = p->paging_info; data < &p->paging_info[MAX_TOTAL_PAGES]; data++)
   {
@@ -343,12 +349,21 @@ int fork(void)
     }
   }
 #endif
-  // task 1.3 - copy parent's page data
-  for (int i = 0; i < 32; i++)
+
+  // task 2 - copy parent's queue
+  np->queue.size = p->queue.size;
+  np->queue.front = p->queue.front;
+  np->queue.rear = p->queue.rear;
+
+  for (int i = 0; i < MAX_TOTAL_PAGES; i++)
   {
+    // task 1.3 - copy parent's page data
     np->paging_info[i].offset = p->paging_info[i].offset;
     np->paging_info[i].stored = p->paging_info[i].stored;
     np->paging_info[i].age = p->paging_info[i].age;
+
+    // task 2 - copy parent's queue paging indices
+    np->queue.q[i] = p->queue.q[i];
   }
 
   // increment reference counts on open file descriptors.
