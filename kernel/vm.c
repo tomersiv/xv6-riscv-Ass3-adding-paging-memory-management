@@ -519,7 +519,7 @@ int calculate_SCFIFO_index()
     pte_t *pte = walk(p->pagetable, PGSIZE * (p->queue.q[p->queue.front]), 0);
 
     // if the access bit is turend on, give the page a second chance
-    if(PTE_A & PTE_FLAGS(*pte))
+    if(PTE_A & PTE_FLAGS(*pte)) // TODO: check if works without PTE_FLAGS
     {
       front_to_rear(p->queue.q); // move the front item to rear
       *pte &= ~PTE_A; // turn off access bit
