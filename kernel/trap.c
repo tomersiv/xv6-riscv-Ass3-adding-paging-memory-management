@@ -64,7 +64,7 @@ void usertrap(void)
 
     syscall();
   }
-  else if (r_scause() == 13 || r_scause() == 15 || r_scause == 12) // page fault
+  else if (r_scause() == 13 || r_scause() == 15 || r_scause() == 12) // page fault
   {
     handle_page_fault();
   }

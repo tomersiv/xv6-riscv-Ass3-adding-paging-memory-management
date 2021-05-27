@@ -177,26 +177,26 @@ void uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     {
       if (PTE_FLAGS(*pte) == PTE_V)
         panic("uvmunmap: not a leaf");
-      if(do_free && (*pte & PTE_V))
+      if (do_free && (*pte & PTE_V))
       {
         uint64 pa = PTE2PA(*pte);
         kfree((void *)pa);
-        
-      }  
-      // TODO: maybe need to change the order
-      #if SELECTION != NONE
-      struct proc *p = myproc()
-
-      if(a/PGSIZE < 32){
-        struct page_data *page = p->paging_meta_data[a/PGSIZE];
-        
-        // remove item from main memory queue
-        remove_item(p->queue, a/PGSIZE);
-        
-        // set the appropriate fields to their default
-        page->stored = 0;
-        page->offset = -1;
       }
+// TODO: maybe need to change the order
+      #if SELECTION != NONE
+        struct proc *p = myproc()
+
+            if (a / PGSIZE < 32)
+        {
+          struct page_data *page = p->paging_meta_data[a / PGSIZE];
+
+          // remove item from main memory queue
+          remove_item(p->queue, a / PGSIZE);
+
+          // set the appropriate fields to their default
+          page->stored = 0;
+          page->offset = -1;
+        }
       #endif
       *pte = 0;
     }
@@ -245,6 +245,39 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   oldsz = PGROUNDUP(oldsz);
   for (a = oldsz; a < newsz; a += PGSIZE)
   {
+
+    #if SELECTION != NONE
+      int num_of_pages = 0;
+      struct proc *p = myproc();
+      struct page_date *page;
+
+      for (page = p->paging_info; page < &p->paging_info[MAX_TOTAL_PAGES]; page++)
+      {
+        if (page->stored)
+        {
+          num_of_pages++;
+        }
+      }
+
+      if (num_of_pages < MAX_PSYC_PAGES)
+      {
+        goto not_none
+      }
+      else
+      {
+        if (mappages(pagetable, a, PGSIZE, 0, 
+            PTE_W | PTE_R | PTE_X | PTE_U | PTE_PG) != 0)
+        {
+          uvmdealloc(pagetable, newsz, oldsz); 
+          return 0;
+        }
+        
+        pte_t *pte = walk(pagetable, a, 0);
+        *pte &= (~PTE_V);
+      }
+    #endif
+
+  not_none:
     mem = kalloc();
     if (mem == 0)
     {
@@ -258,6 +291,22 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
       uvmdealloc(pagetable, a, oldsz);
       return 0;
     }
+
+    #if SELECTION != NONE
+      uint age = 0;
+      struct proc *p = myproc() 
+      struct page_date *page = p->paging_info[a / PGSIZE];
+
+      #if SELECTION == LAPA
+        age = 0xFFFFFFFF;
+      #endif
+
+      #if SELECTION == SCFIFO
+          enqueue(&p->queue, a / PGSIZE);
+      #endif
+
+      page->age = age;
+    #endif
   }
   return newsz;
 }
@@ -546,7 +595,7 @@ int calculate_LAPA_index()
 
       while (idx_mask != 0)
       {
-        if (page.age & idx_mask != 0)
+        if ((page.age & idx_mask) != 0)
         {
           counter++;
         }
@@ -576,33 +625,41 @@ int calculate_SCFIFO_index()
     // if the access bit is turend on, give the page a second chance
     if (PTE_A & PTE_FLAGS(*pte)) // TODO: check if works without PTE_FLAGS
     {
-      front_to_rear(p->queue.q); // move the front item to rear
-      *pte &= ~PTE_A;            // turn off access bit
+      front_to_rear(&p->queue); // move the front item to rear
+      *pte &= ~PTE_A;           // turn off access bit
     }
     else
     {
       break;
     }
   }
-  return dequeue(p->queue.q);
+  return dequeue(&p->queue);
 }
 
 void handle_page_fault()
 {
   struct proc *p = myproc();
-  uint64 faulting_address = r_stval();                                                  // TODO check if needed
-  pte_t *faulting_address_entry = walk(p->pagetable, PGROUNDDOWN(faulting_address), 0); //TODO maybe doesn't need to PGROUNDDOWN
+  uint64 addr = r_stval();                                                  // TODO check if needed
+  pte_t *pte = walk(p->pagetable, PGROUNDDOWN(addr), 0); //TODO maybe doesn't need to PGROUNDDOWN
 
-  if (faulting_address_entry != 0)
+  if (pte != 0)
   {
-    if (((*faulting_address_entry & PTE_V) == 0) &&
-        (*faulting_address_entry & PTE_PG) != 0) // TODO: check PTE_PG
+    if (((*pte & PTE_V) == 0) &&
+        (*pte & PTE_PG) != 0) // TODO: check PTE_PG
     {
       // valid is off and page is in secondary memory - import page from Swapfile
-      swap_pages(faulting_address, faulting_address_entry);
+      swap_pages(addr, pte);
     }
   }
-  // TODO: lazy allocation
+  else if(addr > p->sz)
+  {
+    exit(-1);
+  }
+  else
+  {
+    // lazy allocation
+    uvmalloc(p->pagetable, PGROUNDDOWN(faulting_address), PGROUNDDOWN(faulting_address) + PGSIZE);
+  }
 }
 
 void swap_pages(uint64 faulting_address, pte_t *faulting_address_entry)
@@ -653,17 +710,17 @@ void swap_pages(uint64 faulting_address, pte_t *faulting_address_entry)
       // now we will replace the first page only for checking task 1.
       int swapped_page_index = 0;
 
-#if SELECTION == NFUA // Todo: change to ifdef
-      swapped_page_index = calculate_NFUA_index();
-#endif
+      #if SELECTION == NFUA // Todo: change to ifdef
+        swapped_page_index = calculate_NFUA_index();
+      #endif
 
-#if SELECTION == LAPA // Todo: change to ifdef
-      swapped_page_index = calculate_LAPA_index();
-#endif
+      #if SELECTION == LAPA // Todo: change to ifdef
+        swapped_page_index = calculate_LAPA_index();
+      #endif
 
-#if SELECTION == SCFIFO // Todo: change to ifdef
-      swapped_page_index = calculate_SCFIFO_index();
-#endif
+      #if SELECTION == SCFIFO // Todo: change to ifdef
+        swapped_page_index = calculate_SCFIFO_index();
+      #endif
 
       uint64 swapped_page_va = swapped_page_index * PGSIZE;
 
@@ -688,13 +745,13 @@ void swap_pages(uint64 faulting_address, pte_t *faulting_address_entry)
 
     uint age = 0;
 
-#if SELECTION == LAPA
-    age = 0xFFFFFFFF;
-#endif
+    #if SELECTION == LAPA
+      age = 0xFFFFFFFF;
+    #endif
 
-#if SELECTION == SCFIFO
-    enqueue(&p->queue, faulted_page_index);
-#endif
+    #if SELECTION == SCFIFO
+      enqueue(&p->queue, faulted_page_index);
+    #endif
 
     p->paging_info[faulted_page_index].age = age;
 

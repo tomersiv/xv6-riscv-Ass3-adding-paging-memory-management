@@ -1,7 +1,0 @@
-{
-    "files.associations": {
-        "defs.h": "c",
-        "elf.h": "c"
-    },
-    "C_Cpp.dimInactiveRegions": false
-}
