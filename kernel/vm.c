@@ -233,6 +233,14 @@ void uvminit(pagetable_t pagetable, uchar *src, uint sz)
 uint64
 uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 {
+  #if !SELECTION == SCFIFO
+    printf("SELECTION is not SCFIFO\n");
+  #endif
+  
+  #if SELECTION == NONE
+    printf("SELECTION is NONE\n");
+  #endif
+
   char *mem;
   uint64 a;
 
@@ -243,7 +251,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   for (a = oldsz; a < newsz; a += PGSIZE)
   {
 #if SELECTION != NONE
-    if( a / PGSIZE > MAX_TOTAL_PAGES) // TODO: check if needed
+    if(a / PGSIZE > MAX_TOTAL_PAGES) // TODO: check if needed
     {
       panic("process cannot be larger than 32");
     }

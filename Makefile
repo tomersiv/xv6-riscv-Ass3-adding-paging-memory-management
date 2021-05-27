@@ -32,8 +32,9 @@ OBJS = \
   $K/queue.o
 
   ifndef SELECTION
-  SELECTION := SCFIFO
+  SELECTION = SCFIFO
   endif	
+
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin
 #TOOLPREFIX = 
@@ -137,6 +138,7 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 	$U/_lazytests\
+	$U/_test\
 
 fs.img: mkfs/mkfs README $(UPROGS)
 	mkfs/mkfs fs.img README $(UPROGS)
