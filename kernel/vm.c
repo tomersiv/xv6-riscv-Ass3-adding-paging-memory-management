@@ -180,21 +180,20 @@ void uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
         kfree((void *)pa);
       }
       // TODO: maybe need to change the order
-#if SELECTION != NONE
+      #ifndef NONE
+        if (a / PGSIZE < 32)
+        {
+          struct proc *p = myproc();
+          struct page_data *page = &p->paging_info[a / PGSIZE];
 
-          if (a / PGSIZE < 32)
-      {
-        struct proc *p = myproc();
-        struct page_data *page = &p->paging_info[a / PGSIZE];
+          // remove item from main memory queue
+          remove_item(&p->queue, a / PGSIZE);
 
-        // remove item from main memory queue
-        remove_item(&p->queue, a / PGSIZE);
-
-        // set the appropriate fields to their default
-        page->stored = 0;
-        page->offset = -1;
-      }
-#endif
+          // set the appropriate fields to their default
+          page->stored = 0;
+          page->offset = -1;
+        }
+      #endif
       *pte = 0;
     }
   }
@@ -233,14 +232,6 @@ void uvminit(pagetable_t pagetable, uchar *src, uint sz)
 uint64
 uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 {
-  #if !SELECTION == SCFIFO
-    printf("SELECTION is not SCFIFO\n");
-  #endif
-  
-  #if SELECTION == NONE
-    printf("SELECTION is NONE\n");
-  #endif
-
   char *mem;
   uint64 a;
 
@@ -250,7 +241,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   oldsz = PGROUNDUP(oldsz);
   for (a = oldsz; a < newsz; a += PGSIZE)
   {
-#if SELECTION != NONE
+    #ifndef NONE
     if(a / PGSIZE > MAX_TOTAL_PAGES) // TODO: check if needed
     {
       panic("process cannot be larger than 32");
@@ -323,16 +314,16 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
       return 0;
     }
 
-#if SELECTION != NONE
+#ifndef NONE
   finish: ;
     uint age = 0;
     page = &p->paging_info[a / PGSIZE];
 
-#if SELECTION == LAPA
+#ifdef LAPA
     age = 0xFFFFFFFF;
 #endif
 
-#if SELECTION == SCFIFO
+#ifdef SCFIFO
     enqueue(&p->queue, a / PGSIZE);
 #endif
 
@@ -550,11 +541,11 @@ int calculate_NFUA_index()
 
   for (int i = 3; i < MAX_TOTAL_PAGES; i++) //TODO: check why start from 3
   {
-    struct page_data page = p->paging_info[i];
-    if ((page.stored == 1) && ((page.age < age) || (age == -1)))
+    struct page_data *page = &p->paging_info[i];
+    if ((page->stored == 1) && ((page->age < age) || (age == -1)))
     {
       page_num = i;
-      age = page.age;
+      age = page->age;
     }
   }
 
@@ -563,48 +554,6 @@ int calculate_NFUA_index()
 
 int calculate_LAPA_index()
 {
-  // TODO: delete this commented section
-  // struct proc *p = myproc();
-  // uint curr_age = -1;
-  // int minimum_page_index = 0;
-  // int minimum_ones = -1;
-  // int curr_ones = -1;
-  // uint minimum_age = -1;
-  // int ones_counter;
-  // uint temp_age = -1;
-  // for(int i = 3; i < MAX_TOTAL_PAGES; i++)
-  // {
-  //   if(p->paging_info[i].stored)
-  //   {
-  //     curr_age = p->paging_info[i].age;
-  //     temp_age = curr_age;
-
-  //     // count 1 bits
-  //     ones_counter = 0;
-  //     while(curr_age)
-  //     {
-  //       ones_counter += curr_age & 1;
-  //       curr_age >>= 1;
-  //     }
-  //     curr_age = temp_age;
-  //     if((minimum_ones == ones_counter && curr_age < minimum_age) || (ones_counter < minimum_ones) || (minimum_ones == -1))
-  //     {
-  //       minimum_page_index = i;
-  //       minimum_ones = ones_counter;
-  //       minimum_age = curr_age;
-  //     }
-  //   }
-  // }
-
-  // if(minimum_ones != -1)
-  // {
-  //   return minimum_page_index;
-  // }
-  // else
-  // {
-  //   panic("failed to replace pages");
-  // }
-
   uint age = -1;
   int ones = -1;
   int page_num = 0;
@@ -612,31 +561,28 @@ int calculate_LAPA_index()
 
   for (int i = 3; i < MAX_TOTAL_PAGES; i++)
   {
-    struct page_data page = p->paging_info[i];
-    if (page.stored == 1)
+    struct page_data *page = &p->paging_info[i];
+    if (page->stored == 1)
     {
       // count 1 bits
       int counter = 0;
       uint idx_mask = 1;
 
-      // 110101110100101
-      // 000000000000100
-
       while (idx_mask != 0)
       {
-        if ((page.age & idx_mask) != 0)
+        if ((page->age & idx_mask) != 0)
         {
           counter++;
         }
         idx_mask = idx_mask << 1;
       }
 
-      if ((ones == counter && page.age < age) ||
+      if ((ones == counter && page->age < age) ||
           counter < ones || ones == -1)
       {
         page_num = i;
         ones = counter;
-        age = page.age;
+        age = page->age;
       }
     }
   }
@@ -737,15 +683,15 @@ void swap_pages(uint64 addr, pte_t *pte)
       // now we will replace the first page only for checking task 1.
       int swapped_page_index = 0;
 
-#if SELECTION == NFUA // Todo: change to ifdef
+#ifdef NFUA // Todo: change to ifdef
       swapped_page_index = calculate_NFUA_index();
 #endif
 
-#if SELECTION == LAPA // Todo: change to ifdef
+#ifdef LAPA // Todo: change to ifdef
       swapped_page_index = calculate_LAPA_index();
 #endif
 
-#if SELECTION == SCFIFO // Todo: change to ifdef
+#ifdef SCFIFO // Todo: change to ifdef
       swapped_page_index = calculate_SCFIFO_index();
 #endif
 
@@ -772,11 +718,11 @@ void swap_pages(uint64 addr, pte_t *pte)
 
     uint age = 0;
 
-#if SELECTION == LAPA
+#ifdef LAPA
     age = 0xFFFFFFFF;
 #endif
 
-#if SELECTION == SCFIFO
+#ifdef SCFIFO
     enqueue(&p->queue, faulted_page_index);
 #endif
 

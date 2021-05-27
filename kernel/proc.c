@@ -318,10 +318,12 @@ int fork(void)
   np->trapframe->a0 = 0;
 
 #ifndef NONE
+  release(&np->lock);
   if (createSwapFile(np) != 0)
   {
     printf("failed to create Swapfile");
   }
+  acquire(&np->lock);
 
   // task 1.3 - copy parent's Swapfile to child
   if (p != initproc) //TODO: check this!!
@@ -336,14 +338,18 @@ int fork(void)
         {
           panic("kalloc");
         }
+        release(&np->lock);
         if (readFromSwapFile(p, page, offset, PGSIZE) == -1)
         {
           printf("failed to read from Swapfile");
         }
+
         if (writeToSwapFile(np, page, offset, PGSIZE) == -1)
         {
           printf("failed to write to Swapfile");
         }
+
+        acquire(&np->lock);
         kfree(page);
       }
     }
