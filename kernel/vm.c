@@ -182,22 +182,22 @@ void uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
         uint64 pa = PTE2PA(*pte);
         kfree((void *)pa);
       }
-// TODO: maybe need to change the order
-      #if SELECTION != NONE
-        struct proc *p = myproc()
+      // TODO: maybe need to change the order
+#if SELECTION != NONE
+      struct proc *p = myproc()
 
-            if (a / PGSIZE < 32)
-        {
-          struct page_data *page = p->paging_meta_data[a / PGSIZE];
+          if (a / PGSIZE < 32)
+      {
+        struct page_data *page = p->paging_meta_data[a / PGSIZE];
 
-          // remove item from main memory queue
-          remove_item(p->queue, a / PGSIZE);
+        // remove item from main memory queue
+        remove_item(p->queue, a / PGSIZE);
 
-          // set the appropriate fields to their default
-          page->stored = 0;
-          page->offset = -1;
-        }
-      #endif
+        // set the appropriate fields to their default
+        page->stored = 0;
+        page->offset = -1;
+      }
+#endif
       *pte = 0;
     }
   }
@@ -245,7 +245,6 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   oldsz = PGROUNDUP(oldsz);
   for (a = oldsz; a < newsz; a += PGSIZE)
   {
-
     #if SELECTION != NONE
       int num_of_pages = 0;
       struct proc *p = myproc();
@@ -265,19 +264,42 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
       }
       else
       {
-        if (mappages(pagetable, a, PGSIZE, 0, 
-            PTE_W | PTE_R | PTE_X | PTE_U | PTE_PG) != 0)
+        if (mappages(pagetable, a, PGSIZE, 0,
+                     PTE_W | PTE_R | PTE_X | PTE_U | PTE_PG) != 0)
         {
-          uvmdealloc(pagetable, newsz, oldsz); 
+          uvmdealloc(pagetable, newsz, oldsz);
           return 0;
         }
-        
+
         pte_t *pte = walk(pagetable, a, 0);
         *pte &= (~PTE_V);
+
+        // now, find the next available offset index in Swapfile to write the page to
+        // TODO: maybe need to change this
+        int offset;
+        for (int i = 0; i < p->sz; i += PGSIZE)
+        {
+          int found = 1;
+          for (int j = 0; j < MAX_TOTAL_PAGES; j++)
+          {
+            if(p->paging_info[j].offset == i)
+            {
+              found = 0;
+              break;
+            }
+          }
+          if(found)
+          {
+            offset = i;
+            break;
+          }
+        }
+        p->paging_info[a / PGSIZE].offset = offset;
+        goto finish;
       }
+      not_none:
     #endif
 
-  not_none:
     mem = kalloc();
     if (mem == 0)
     {
@@ -293,8 +315,9 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     }
 
     #if SELECTION != NONE
+      finish:
       uint age = 0;
-      struct proc *p = myproc() 
+      struct proc *p = myproc();
       struct page_date *page = p->paging_info[a / PGSIZE];
 
       #if SELECTION == LAPA
@@ -302,11 +325,12 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
       #endif
 
       #if SELECTION == SCFIFO
-          enqueue(&p->queue, a / PGSIZE);
+        enqueue(&p->queue, a / PGSIZE);
       #endif
 
       page->age = age;
-    #endif
+      page->stored = 1;
+  #endif
   }
   return newsz;
 }
@@ -639,7 +663,7 @@ int calculate_SCFIFO_index()
 void handle_page_fault()
 {
   struct proc *p = myproc();
-  uint64 addr = r_stval();                                                  // TODO check if needed
+  uint64 addr = r_stval();                               // TODO check if needed
   pte_t *pte = walk(p->pagetable, PGROUNDDOWN(addr), 0); //TODO maybe doesn't need to PGROUNDDOWN
 
   if (pte != 0)
@@ -651,14 +675,14 @@ void handle_page_fault()
       swap_pages(addr, pte);
     }
   }
-  else if(addr > p->sz)
+  else if (addr > p->sz)
   {
     exit(-1);
   }
   else
   {
     // lazy allocation
-    uvmalloc(p->pagetable, PGROUNDDOWN(faulting_address), PGROUNDDOWN(faulting_address) + PGSIZE);
+    uvmalloc(p->pagetable, PGROUNDDOWN(addr), PGROUNDDOWN(addr) + PGSIZE);
   }
 }
 
@@ -710,17 +734,17 @@ void swap_pages(uint64 faulting_address, pte_t *faulting_address_entry)
       // now we will replace the first page only for checking task 1.
       int swapped_page_index = 0;
 
-      #if SELECTION == NFUA // Todo: change to ifdef
-        swapped_page_index = calculate_NFUA_index();
-      #endif
+#if SELECTION == NFUA // Todo: change to ifdef
+      swapped_page_index = calculate_NFUA_index();
+#endif
 
-      #if SELECTION == LAPA // Todo: change to ifdef
-        swapped_page_index = calculate_LAPA_index();
-      #endif
+#if SELECTION == LAPA // Todo: change to ifdef
+      swapped_page_index = calculate_LAPA_index();
+#endif
 
-      #if SELECTION == SCFIFO // Todo: change to ifdef
-        swapped_page_index = calculate_SCFIFO_index();
-      #endif
+#if SELECTION == SCFIFO // Todo: change to ifdef
+      swapped_page_index = calculate_SCFIFO_index();
+#endif
 
       uint64 swapped_page_va = swapped_page_index * PGSIZE;
 
@@ -745,13 +769,13 @@ void swap_pages(uint64 faulting_address, pte_t *faulting_address_entry)
 
     uint age = 0;
 
-    #if SELECTION == LAPA
-      age = 0xFFFFFFFF;
-    #endif
+#if SELECTION == LAPA
+    age = 0xFFFFFFFF;
+#endif
 
-    #if SELECTION == SCFIFO
-      enqueue(&p->queue, faulted_page_index);
-    #endif
+#if SELECTION == SCFIFO
+    enqueue(&p->queue, faulted_page_index);
+#endif
 
     p->paging_info[faulted_page_index].age = age;
 
