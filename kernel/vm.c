@@ -248,7 +248,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     #if SELECTION != NONE
       int num_of_pages = 0;
       struct proc *p = myproc();
-      struct page_date *page;
+      struct page_data *page;
 
       for (page = p->paging_info; page < &p->paging_info[MAX_TOTAL_PAGES]; page++)
       {
@@ -318,7 +318,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
       finish:
       uint age = 0;
       struct proc *p = myproc();
-      struct page_date *page = p->paging_info[a / PGSIZE];
+      struct page_data *page = p->paging_info[a / PGSIZE];
 
       #if SELECTION == LAPA
         age = 0xFFFFFFFF;
@@ -663,13 +663,13 @@ int calculate_SCFIFO_index()
 void handle_page_fault()
 {
   struct proc *p = myproc();
-  uint64 addr = r_stval();                               // TODO check if needed
-  pte_t *pte = walk(p->pagetable, PGROUNDDOWN(addr), 0); //TODO maybe doesn't need to PGROUNDDOWN
+  uint64 addr = r_stval();
+  pte_t *pte = walk(p->pagetable, PGROUNDDOWN(addr), 0); //TODO: check if PGROUNDDOWN is needed
 
   if (pte != 0)
   {
     if (((*pte & PTE_V) == 0) &&
-        (*pte & PTE_PG) != 0) // TODO: check PTE_PG
+        (*pte & PTE_PG) != 0)
     {
       // valid is off and page is in secondary memory - import page from Swapfile
       swap_pages(addr, pte);
@@ -686,10 +686,10 @@ void handle_page_fault()
   }
 }
 
-void swap_pages(uint64 faulting_address, pte_t *faulting_address_entry)
+void swap_pages(uint64 addr, pte_t *pte)
 {
   struct proc *p = myproc();
-  int faulted_page_index = PGROUNDDOWN(faulting_address) / PGSIZE;
+  int faulted_page_index = PGROUNDDOWN(addr) / PGSIZE;
   int offset = p->paging_info[faulted_page_index].offset; //offset of faulted page is swapfile
 
   // TODO: if everything works, remove this if-else block
@@ -724,7 +724,7 @@ void swap_pages(uint64 faulting_address, pte_t *faulting_address_entry)
 
     if (pages_in_main < MAX_PSYC_PAGES)
     {
-      *faulting_address_entry = PA2PTE((uint64)faulted_page) | PTE_V;
+      *pte = PA2PTE((uint64)faulted_page) | PTE_V;
     }
     else // swap pages from main memory to Swapfile
     {
@@ -734,17 +734,17 @@ void swap_pages(uint64 faulting_address, pte_t *faulting_address_entry)
       // now we will replace the first page only for checking task 1.
       int swapped_page_index = 0;
 
-#if SELECTION == NFUA // Todo: change to ifdef
-      swapped_page_index = calculate_NFUA_index();
-#endif
+      #if SELECTION == NFUA // Todo: change to ifdef
+        swapped_page_index = calculate_NFUA_index();
+      #endif
 
-#if SELECTION == LAPA // Todo: change to ifdef
-      swapped_page_index = calculate_LAPA_index();
-#endif
+      #if SELECTION == LAPA // Todo: change to ifdef
+        swapped_page_index = calculate_LAPA_index();
+      #endif
 
-#if SELECTION == SCFIFO // Todo: change to ifdef
-      swapped_page_index = calculate_SCFIFO_index();
-#endif
+      #if SELECTION == SCFIFO // Todo: change to ifdef
+        swapped_page_index = calculate_SCFIFO_index();
+      #endif
 
       uint64 swapped_page_va = swapped_page_index * PGSIZE;
 
@@ -759,7 +759,7 @@ void swap_pages(uint64 faulting_address, pte_t *faulting_address_entry)
       p->paging_info[swapped_page_index].offset = offset;
 
       // set the faulted address entry in the main memory
-      *faulting_address_entry = PA2PTE((uint64)faulted_page) | (PTE_V | (~PTE_PG & PTE_FLAGS(*faulting_address_entry))); //TODO check if commutative
+      *pte = PA2PTE((uint64)faulted_page) | (PTE_V | (~PTE_PG & PTE_FLAGS(*pte))); //TODO check if commutative
                                                                                                                          // TODO: check PTE_PG
       kfree((void *)swapped_page_PA);                                                                                    // TODO: check if needed
     }
@@ -769,13 +769,13 @@ void swap_pages(uint64 faulting_address, pte_t *faulting_address_entry)
 
     uint age = 0;
 
-#if SELECTION == LAPA
-    age = 0xFFFFFFFF;
-#endif
+    #if SELECTION == LAPA
+      age = 0xFFFFFFFF;
+    #endif
 
-#if SELECTION == SCFIFO
-    enqueue(&p->queue, faulted_page_index);
-#endif
+    #if SELECTION == SCFIFO
+      enqueue(&p->queue, faulted_page_index);
+    #endif
 
     p->paging_info[faulted_page_index].age = age;
 
