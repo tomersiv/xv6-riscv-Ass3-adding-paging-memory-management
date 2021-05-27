@@ -81,9 +81,6 @@ void kvminithart()
 pte_t *
 walk(pagetable_t pagetable, uint64 va, int alloc)
 {
-  if (va >= MAXVA)
-    panic("walk");
-
   for (int level = 2; level > 0; level--)
   {
     pte_t *pte = &pagetable[PX(level, va)];
@@ -245,60 +242,60 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   oldsz = PGROUNDUP(oldsz);
   for (a = oldsz; a < newsz; a += PGSIZE)
   {
-    #if SELECTION != NONE
-      int num_of_pages = 0;
-      struct proc *p = myproc();
-      struct page_data *page;
+#if SELECTION != NONE
+    int num_of_pages = 0;
+    struct proc *p = myproc();
+    struct page_data *page;
 
-      for (page = p->paging_info; page < &p->paging_info[MAX_TOTAL_PAGES]; page++)
+    for (page = p->paging_info; page < &p->paging_info[MAX_TOTAL_PAGES]; page++)
+    {
+      if (page->stored)
       {
-        if (page->stored)
-        {
-          num_of_pages++;
-        }
+        num_of_pages++;
+      }
+    }
+
+    if (num_of_pages < MAX_PSYC_PAGES)
+    {
+      goto not_none
+    }
+    else
+    {
+      if (mappages(pagetable, a, PGSIZE, 0,
+                   PTE_W | PTE_R | PTE_X | PTE_U | PTE_PG) != 0)
+      {
+        uvmdealloc(pagetable, newsz, oldsz);
+        return 0;
       }
 
-      if (num_of_pages < MAX_PSYC_PAGES)
-      {
-        goto not_none
-      }
-      else
-      {
-        if (mappages(pagetable, a, PGSIZE, 0,
-                     PTE_W | PTE_R | PTE_X | PTE_U | PTE_PG) != 0)
-        {
-          uvmdealloc(pagetable, newsz, oldsz);
-          return 0;
-        }
+      pte_t *pte = walk(pagetable, a, 0);
+      *pte &= (~PTE_V);
 
-        pte_t *pte = walk(pagetable, a, 0);
-        *pte &= (~PTE_V);
-
-        // now, find the next available offset index in Swapfile to write the page to
-        // TODO: maybe need to change this
-        int offset;
-        for (int i = 0; i < p->sz; i += PGSIZE)
+      // now, find the next available offset index in Swapfile to write the page to
+      // TODO: maybe need to change this
+      int offset;
+      for (int i = 0; i < p->sz; i += PGSIZE)
+      {
+        int found = 1;
+        for (int j = 0; j < MAX_TOTAL_PAGES; j++)
         {
-          int found = 1;
-          for (int j = 0; j < MAX_TOTAL_PAGES; j++)
+          if (p->paging_info[j].offset == i)
           {
-            if(p->paging_info[j].offset == i)
-            {
-              found = 0;
-              break;
-            }
-          }
-          if(found)
-          {
-            offset = i;
+            found = 0;
             break;
           }
         }
-        p->paging_info[a / PGSIZE].offset = offset;
-        goto finish;
+        if (found)
+        {
+          offset = i;
+          break;
+        }
       }
-      not_none:
-    #endif
+      p->paging_info[a / PGSIZE].offset = offset;
+      goto finish;
+    }
+  not_none:
+#endif
 
     mem = kalloc();
     if (mem == 0)
@@ -314,23 +311,23 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
       return 0;
     }
 
-    #if SELECTION != NONE
-      finish:
-      uint age = 0;
-      struct proc *p = myproc();
-      struct page_data *page = p->paging_info[a / PGSIZE];
+#if SELECTION != NONE
+  finish:
+    uint age = 0;
+    struct proc *p = myproc();
+    struct page_data *page = p->paging_info[a / PGSIZE];
 
-      #if SELECTION == LAPA
-        age = 0xFFFFFFFF;
-      #endif
+#if SELECTION == LAPA
+    age = 0xFFFFFFFF;
+#endif
 
-      #if SELECTION == SCFIFO
-        enqueue(&p->queue, a / PGSIZE);
-      #endif
+#if SELECTION == SCFIFO
+    enqueue(&p->queue, a / PGSIZE);
+#endif
 
-      page->age = age;
-      page->stored = 1;
-  #endif
+    page->age = age;
+    page->stored = 1;
+#endif
   }
   return newsz;
 }
@@ -401,21 +398,18 @@ int uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for (i = 0; i < sz; i += PGSIZE)
   {
-    // TODO: if we get those 2 panics bellow replace them both for:
-    // if((pte = walk(old, i, 0)) !=0 && (*pte & PTE_V) != 0)
-    if ((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
-    if ((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if ((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char *)pa, PGSIZE);
-    if (mappages(new, i, PGSIZE, (uint64)mem, flags) != 0)
+    if ((pte = walk(old, i, 0)) != 0 && (*pte & PTE_V) != 0)
     {
-      kfree(mem);
-      goto err;
+      pa = PTE2PA(*pte);
+      flags = PTE_FLAGS(*pte);
+      if ((mem = kalloc()) == 0)
+        goto err;
+      memmove(mem, (char *)pa, PGSIZE);
+      if (mappages(new, i, PGSIZE, (uint64)mem, flags) != 0)
+      {
+        kfree(mem);
+        goto err;
+      }
     }
   }
   return 0;
@@ -666,14 +660,12 @@ void handle_page_fault()
   uint64 addr = r_stval();
   pte_t *pte = walk(p->pagetable, PGROUNDDOWN(addr), 0); //TODO: check if PGROUNDDOWN is needed
 
-  if (pte != 0)
+  if ((pte != 0) && ((*pte & PTE_PG) != 0) &&
+      ((*pte & PTE_V) == 0))
+
   {
-    if (((*pte & PTE_V) == 0) &&
-        (*pte & PTE_PG) != 0)
-    {
-      // valid is off and page is in secondary memory - import page from Swapfile
-      swap_pages(addr, pte);
-    }
+    // valid is off and page is in secondary memory - import page from Swapfile
+    swap_pages(addr, pte);
   }
   else if (addr > p->sz)
   {
@@ -734,22 +726,22 @@ void swap_pages(uint64 addr, pte_t *pte)
       // now we will replace the first page only for checking task 1.
       int swapped_page_index = 0;
 
-      #if SELECTION == NFUA // Todo: change to ifdef
-        swapped_page_index = calculate_NFUA_index();
-      #endif
+#if SELECTION == NFUA // Todo: change to ifdef
+      swapped_page_index = calculate_NFUA_index();
+#endif
 
-      #if SELECTION == LAPA // Todo: change to ifdef
-        swapped_page_index = calculate_LAPA_index();
-      #endif
+#if SELECTION == LAPA // Todo: change to ifdef
+      swapped_page_index = calculate_LAPA_index();
+#endif
 
-      #if SELECTION == SCFIFO // Todo: change to ifdef
-        swapped_page_index = calculate_SCFIFO_index();
-      #endif
+#if SELECTION == SCFIFO // Todo: change to ifdef
+      swapped_page_index = calculate_SCFIFO_index();
+#endif
 
       uint64 swapped_page_va = swapped_page_index * PGSIZE;
 
       pte_t *swapped_page_entry = walk(p->pagetable, swapped_page_va, 0); //TODO: minimize to one line
-      uint64 swapped_page_PA = PTE2PA(*swapped_page_entry);
+      uint64 swapped_page_PA = PTE2PA(*swapped_page_entry); // TODO: try to change all occurances to walkaddr
       if (writeToSwapFile(p, (char *)swapped_page_PA, offset, PGSIZE) == -1)
       {
         printf("failed to write the swapped page to Swapfile");
@@ -760,8 +752,8 @@ void swap_pages(uint64 addr, pte_t *pte)
 
       // set the faulted address entry in the main memory
       *pte = PA2PTE((uint64)faulted_page) | (PTE_V | (~PTE_PG & PTE_FLAGS(*pte))); //TODO check if commutative
-                                                                                                                         // TODO: check PTE_PG
-      kfree((void *)swapped_page_PA);                                                                                    // TODO: check if needed
+                                                                                   // TODO: check PTE_PG
+      kfree((void *)swapped_page_PA);                                              // TODO: check if needed
     }
     // page is no longer in Swapfile, so need to update
     p->paging_info[faulted_page_index].stored = 1;
@@ -769,13 +761,13 @@ void swap_pages(uint64 addr, pte_t *pte)
 
     uint age = 0;
 
-    #if SELECTION == LAPA
-      age = 0xFFFFFFFF;
-    #endif
+#if SELECTION == LAPA
+    age = 0xFFFFFFFF;
+#endif
 
-    #if SELECTION == SCFIFO
-      enqueue(&p->queue, faulted_page_index);
-    #endif
+#if SELECTION == SCFIFO
+    enqueue(&p->queue, faulted_page_index);
+#endif
 
     p->paging_info[faulted_page_index].age = age;
 
