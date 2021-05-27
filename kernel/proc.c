@@ -317,7 +317,7 @@ int fork(void)
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
 
-#if SELECTION != NONE
+#ifndef NONE
   if (createSwapFile(np) != 0)
   {
     printf("failed to create Swapfile");
@@ -540,11 +540,11 @@ void scheduler(void)
         c->proc = p;
         swtch(&c->context, &p->context);
         // task 2 - update age field for each page_data in p->paging_info array
-        #if SELECTION == NFUA // Todo: change to ifdef
+        #ifdef NFUA // Todo: change to ifdef
         update_age();
         #endif
 
-        #if SELECTION == LAPA // Todo: change to ifdef
+        #ifdef LAPA // Todo: change to ifdef
         update_age();
         #endif
         // Process is done running for now.

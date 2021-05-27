@@ -6,8 +6,8 @@
 #include "defs.h"
 #include "fs.h"
 #include "spinlock.h"
-#include "proc.h"
 #include "queue.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -181,14 +181,14 @@ void uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       }
       // TODO: maybe need to change the order
 #if SELECTION != NONE
-      struct proc *p = myproc()
 
           if (a / PGSIZE < 32)
       {
-        struct page_data *page = p->paging_meta_data[a / PGSIZE];
+        struct proc *p = myproc();
+        struct page_data *page = &p->paging_info[a / PGSIZE];
 
         // remove item from main memory queue
-        remove_item(p->queue, a / PGSIZE);
+        remove_item(&p->queue, a / PGSIZE);
 
         // set the appropriate fields to their default
         page->stored = 0;
@@ -269,7 +269,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 
     if (num_of_pages < MAX_PSYC_PAGES)
     {
-      goto not_none
+      goto not_none;
     }
     else
     {
@@ -285,7 +285,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 
       // now, find the next available offset index in Swapfile to write the page to
       // TODO: maybe need to change this
-      int offset;
+      int offset = -1;
       for (int i = 0; i < p->sz; i += PGSIZE)
       {
         int found = 1;
@@ -324,10 +324,9 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     }
 
 #if SELECTION != NONE
-  finish:
+  finish: ;
     uint age = 0;
-    struct proc *p = myproc();
-    struct page_data *page = p->paging_info[a / PGSIZE];
+    page = &p->paging_info[a / PGSIZE];
 
 #if SELECTION == LAPA
     age = 0xFFFFFFFF;
