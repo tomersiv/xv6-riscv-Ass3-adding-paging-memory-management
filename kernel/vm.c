@@ -243,6 +243,10 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   for (a = oldsz; a < newsz; a += PGSIZE)
   {
 #if SELECTION != NONE
+    if( a / PGSIZE > MAX_TOTAL_PAGES) // TODO: check if needed
+    {
+      panic("process cannot be larger than 32");
+    }
     int num_of_pages = 0;
     struct proc *p = myproc();
     struct page_data *page;
