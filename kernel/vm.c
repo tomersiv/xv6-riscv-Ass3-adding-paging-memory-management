@@ -248,7 +248,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     #if SELECTION != NONE
       int num_of_pages = 0;
       struct proc *p = myproc();
-      struct page_date *page;
+      struct page_data *page;
 
       for (page = p->paging_info; page < &p->paging_info[MAX_TOTAL_PAGES]; page++)
       {
@@ -318,7 +318,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
       finish:
       uint age = 0;
       struct proc *p = myproc();
-      struct page_date *page = p->paging_info[a / PGSIZE];
+      struct page_data *page = p->paging_info[a / PGSIZE];
 
       #if SELECTION == LAPA
         age = 0xFFFFFFFF;
