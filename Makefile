@@ -67,7 +67,7 @@ CFLAGS += -mcmodel=medany
 CFLAGS += -ffreestanding -fno-common -nostdlib -mno-relax
 CFLAGS += -I.
 CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
-CFLAGS += -D $(SELECTION)
+CFLAGS += -D SELECTION=$(SELECTION)
 
 # Disable PIE when possible (for Ubuntu 16.10 toolchain)
 ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
@@ -121,6 +121,7 @@ mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
 # http://www.gnu.org/software/make/manual/html_node/Chained-Rules.html
 .PRECIOUS: %.o
 
+# TODO: test.c
 UPROGS=\
 	$U/_cat\
 	$U/_echo\
@@ -139,7 +140,6 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 	$U/_lazytests\
-	# TODO: REMOVE this and remove test.c!
 	$U/_test\
 
 fs.img: mkfs/mkfs README $(UPROGS)
