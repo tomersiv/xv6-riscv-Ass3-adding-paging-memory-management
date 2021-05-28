@@ -183,7 +183,7 @@ void uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
         kfree((void *)pa);
       }
       // TODO: maybe need to change the order
-      #ifndef NONE
+      #if !(SELECTION == NONE)
         if (a / PGSIZE < 32)
         {
           struct proc *p = myproc();
@@ -235,6 +235,33 @@ void uvminit(pagetable_t pagetable, uchar *src, uint sz)
 uint64
 uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 {
+  // TODO: Delete this
+  // #if SELECTION == SCFIFO
+  //   printf("SELECTION is SCFIFO\n");
+  // #endif
+  // #if SELECTION == NONE
+  //   printf("SELECTION is NONE\n");
+  // #endif
+  // #if SELECTION == NFUA
+  //   printf("SELECTION is NFUA\n");
+  // #endif
+  // #if SELECTION == LAPA
+  //   printf("SELECTION is LAPA\n");
+  // #endif
+
+  // #if !(SELECTION == SCFIFO)
+  //   printf("SELECTION IS NOT(!!!) SCFIFO\n");
+  // #endif
+  // #if !(SELECTION == NONE)
+  //   printf("SELECTION IS NOT(!!!) NONE\n");
+  // #endif
+  // #if !(SELECTION == NFUA)
+  //   printf("SELECTION IS NOT(!!!) NFUA\n");
+  // #endif
+  // #if !(SELECTION == LAPA)
+  //   printf("SELECTION IS NOT(!!!) LAPA\n");
+  // #endif
+
   char *mem;
   uint64 a;
 
@@ -244,7 +271,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   oldsz = PGROUNDUP(oldsz);
   for (a = oldsz; a < newsz; a += PGSIZE)
   {
-    #ifndef NONE
+    #if !(SELECTION == NONE)
     if(a / PGSIZE > MAX_TOTAL_PAGES) // TODO: check if needed
     {
       panic("process cannot be larger than 32");
@@ -317,16 +344,16 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
       return 0;
     }
 
-#ifndef NONE
+#if !(SELECTION == NONE)
   finish: ;
     uint age = 0;
     page = &p->paging_info[a / PGSIZE];
 
-#ifdef LAPA
+#if SELECTION == LAPA
     age = 0xFFFFFFFF;
 #endif
 
-#ifdef SCFIFO
+#if SELECTION == SCFIFO
     enqueue(&p->queue, a / PGSIZE);
 #endif
 
@@ -686,15 +713,15 @@ void swap_pages(uint64 addr, pte_t *pte)
       // now we will replace the first page only for checking task 1.
       int swapped_page_index = 0;
 
-#ifdef NFUA // Todo: change to ifdef
+#if SELECTION == NFUA // Todo: change to ifdef
       swapped_page_index = calculate_NFUA_index();
 #endif
 
-#ifdef LAPA // Todo: change to ifdef
+#if SELECTION == LAPA // Todo: change to ifdef
       swapped_page_index = calculate_LAPA_index();
 #endif
 
-#ifdef SCFIFO // Todo: change to ifdef
+#if SELECTION == SCFIFO // Todo: change to ifdef
       swapped_page_index = calculate_SCFIFO_index();
 #endif
 
@@ -721,11 +748,11 @@ void swap_pages(uint64 addr, pte_t *pte)
 
     uint age = 0;
 
-#ifdef LAPA
+#if SELECTION == LAPA
     age = 0xFFFFFFFF;
 #endif
 
-#ifdef SCFIFO
+#if SELECTION == SCFIFO
     enqueue(&p->queue, faulted_page_index);
 #endif
 
