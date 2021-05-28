@@ -140,6 +140,7 @@ found:
     data->offset = -1;
     data->stored = 0;
     data->age = 0;
+    p->queue.q[(int)(data - p->paging_info)] = -1;
   }
 
   // Allocate a trapframe page.
