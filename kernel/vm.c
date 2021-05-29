@@ -279,14 +279,17 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     int num_of_pages = 0;
     struct proc *p = myproc();
     struct page_data *page;
-
+    int i = 0; // TODO: remove or change
     for (page = p->paging_info; page < &p->paging_info[MAX_TOTAL_PAGES]; page++)
     {
       if (page->stored)
       {
+        printf("pid %d , %d in memory, aging %d\n", myproc()->pid, i, page->age); // TODO: remove or change
         num_of_pages++;
       }
+      i++; // TODO: remove or change
     }
+    i = 0;// TODO: remove or change
 
     if (num_of_pages < MAX_PSYC_PAGES)
     {
@@ -358,9 +361,9 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 
     page->age = age;
     page->stored = 1;
+finish: ;
 #endif
   }
-finish: ;
   return newsz;
 }
 
@@ -630,11 +633,13 @@ int calculate_SCFIFO_index()
     // if the access bit is turend on, give the page a second chance
     if (PTE_A & PTE_FLAGS(*pte)) // TODO: check if works without PTE_FLAGS
     {
+      printf("removing accsesed bit from %d\n", p->queue.q[p->queue.front]); // TODO: remove or change
       front_to_rear(&p->queue); // move the front item to rear
       *pte &= ~PTE_A;           // turn off access bit
     }
     else
     {
+      printf("not accsesed %d \n", p->queue.q[p->queue.front]); // TODO: remove or change
       break;
     }
   }
@@ -651,6 +656,7 @@ void handle_page_fault()
       ((*pte & PTE_V) == 0))
 
   {
+    printf("Page Fault - Page was out of memory\n"); // TODO: remove or change
     // valid is off and page is in secondary memory - import page from Swapfile
     swap_pages(addr, pte);
   }
@@ -692,14 +698,18 @@ void swap_pages(uint64 addr, pte_t *pte)
     // get number of pages in main memory
     int pages_in_main = 0;
     struct page_data *page;
+    int i = 0; // TODO: remove
 
     for (page = p->paging_info; page < &p->paging_info[MAX_TOTAL_PAGES]; page++)
     {
       if (page->stored == 1)
       {
+        printf("pid %d , %d in memory, aging %d\n", myproc()->pid, i, page->age); // TODO: remove or change
         pages_in_main++;
       }
+      i++; // TODO: remove
     }
+    i = 0; // TODO: remove
 
     if (pages_in_main < MAX_PSYC_PAGES)
     {
@@ -728,7 +738,8 @@ void swap_pages(uint64 addr, pte_t *pte)
       uint64 swapped_page_va = swapped_page_index * PGSIZE;
 
       pte_t *swapped_page_entry = walk(p->pagetable, swapped_page_va, 0); //TODO: minimize to one line
-      uint64 swapped_page_PA = PTE2PA(*swapped_page_entry); // TODO: try to change all occurances to walkaddr
+      uint64 swapped_page_PA = PTE2PA(*swapped_page_entry); 
+      printf("Chosen page %d. Data in chosen page is %s\n", swapped_page_index, swapped_page_PA); // TODO: remove or change
       if (writeToSwapFile(p, (char *)swapped_page_PA, offset, PGSIZE) == -1)
       {
         printf("failed to write the swapped page to Swapfile");
