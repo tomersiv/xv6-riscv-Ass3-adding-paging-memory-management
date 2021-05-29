@@ -177,26 +177,36 @@ void uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     {
       if (PTE_FLAGS(*pte) == PTE_V)
         panic("uvmunmap: not a leaf");
-      if (do_free && (*pte & PTE_V))
+      if ((*pte & PTE_V) == 0) {
+        #if !(SELECTION == NONE)
+          if(a / PGSIZE < MAX_TOTAL_PAGES)
+          {
+            struct proc *p = myproc();
+            struct page_data *page = &p->paging_info[a / PGSIZE];
+            page->offset = -1;
+          }
+        #endif
+      }
+      else if (do_free)
       {
         uint64 pa = PTE2PA(*pte);
         kfree((void *)pa);
+              
+        #if !(SELECTION == NONE)
+          if(a / PGSIZE < MAX_TOTAL_PAGES)
+          {
+            struct proc *p = myproc();
+            struct page_data *page = &p->paging_info[a / PGSIZE];
+
+            // remove item from main memory queue
+            remove_item(&p->queue, a / PGSIZE);
+
+            // set the appropriate fields to their default
+            page->stored = 0;
+            page->offset = -1;
+          }
+        #endif
       }
-      // TODO: maybe need to change the order
-      #if !(SELECTION == NONE)
-        if (a / PGSIZE < 32)
-        {
-          struct proc *p = myproc();
-          struct page_data *page = &p->paging_info[a / PGSIZE];
-
-          // remove item from main memory queue
-          remove_item(&p->queue, a / PGSIZE);
-
-          // set the appropriate fields to their default
-          page->stored = 0;
-          page->offset = -1;
-        }
-      #endif
       *pte = 0;
     }
   }
@@ -235,33 +245,6 @@ void uvminit(pagetable_t pagetable, uchar *src, uint sz)
 uint64
 uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
 {
-  // TODO: Delete this
-  // #if SELECTION == SCFIFO
-  //   printf("SELECTION is SCFIFO\n");
-  // #endif
-  // #if SELECTION == NONE
-  //   printf("SELECTION is NONE\n");
-  // #endif
-  // #if SELECTION == NFUA
-  //   printf("SELECTION is NFUA\n");
-  // #endif
-  // #if SELECTION == LAPA
-  //   printf("SELECTION is LAPA\n");
-  // #endif
-
-  // #if !(SELECTION == SCFIFO)
-  //   printf("SELECTION IS NOT(!!!) SCFIFO\n");
-  // #endif
-  // #if !(SELECTION == NONE)
-  //   printf("SELECTION IS NOT(!!!) NONE\n");
-  // #endif
-  // #if !(SELECTION == NFUA)
-  //   printf("SELECTION IS NOT(!!!) NFUA\n");
-  // #endif
-  // #if !(SELECTION == LAPA)
-  //   printf("SELECTION IS NOT(!!!) LAPA\n");
-  // #endif
-
   char *mem;
   uint64 a;
 
@@ -272,66 +255,67 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
   for (a = oldsz; a < newsz; a += PGSIZE)
   {
     #if !(SELECTION == NONE)
-    if(a / PGSIZE > MAX_TOTAL_PAGES) // TODO: check if needed
-    {
-      panic("process cannot be larger than 32");
-    }
-    int num_of_pages = 0;
-    struct proc *p = myproc();
-    struct page_data *page;
-    int i = 0; // TODO: remove or change
-    for (page = p->paging_info; page < &p->paging_info[MAX_TOTAL_PAGES]; page++)
-    {
-      if (page->stored)
+      if(a / PGSIZE > MAX_TOTAL_PAGES)
       {
-        printf("pid %d , %d in memory, aging %d\n", myproc()->pid, i, page->age); // TODO: remove or change
-        num_of_pages++;
+        panic("process cannot be larger than 32");
       }
-      i++; // TODO: remove or change
-    }
-    i = 0;// TODO: remove or change
+      int num_of_pages = 0;
+      struct proc *p = myproc();
+      struct page_data *page;
 
-    if (num_of_pages < MAX_PSYC_PAGES)
-    {
-      goto not_none;
-    }
-    else
-    {
-      if (mappages(pagetable, a, PGSIZE, 0,
-                   PTE_W | PTE_R | PTE_X | PTE_U | PTE_PG) != 0)
+      int i = 0; // TODO: remove or change
+      for (page = p->paging_info; page < &p->paging_info[MAX_TOTAL_PAGES]; page++)
       {
-        uvmdealloc(pagetable, newsz, oldsz);
-        return 0;
-      }
-
-      pte_t *pte = walk(pagetable, a, 0);
-      *pte &= (~PTE_V);
-
-      // now, find the next available offset index in Swapfile to write the page to
-      // TODO: maybe need to change this
-      int offset = -1;
-      for (int i = 0; i < p->sz; i += PGSIZE)
-      {
-        int found = 1;
-        for (int j = 0; j < MAX_TOTAL_PAGES; j++)
+        if (page->stored)
         {
-          if (p->paging_info[j].offset == i)
+          printf("pid %d , %d in memory, aging %d\n", myproc()->pid, i, page->age); // TODO: remove or change
+          num_of_pages++;
+        }
+        i++; // TODO: remove or change
+      }
+      i = 0;// TODO: remove or change
+
+      if (num_of_pages < MAX_PSYC_PAGES)
+      {
+        goto not_none;
+      }
+      else
+      {
+        if (mappages(pagetable, a, PGSIZE, 0,
+                     PTE_W | PTE_R | PTE_X | PTE_U | PTE_PG) != 0)
+        {
+          uvmdealloc(pagetable, newsz, oldsz);
+          return 0;
+        }
+
+        pte_t *pte = walk(pagetable, a, 0);
+        *pte &= (~PTE_V);
+
+        // now, find the next available offset index in Swapfile to write the page to
+        // TODO: logic - maybe need to change this
+        int offset = -1;
+        for (int i = 0; i < p->sz; i += PGSIZE)
+        {
+          int found = 1;
+          for (int j = 0; j < MAX_TOTAL_PAGES; j++)
           {
-            found = 0;
+            if (p->paging_info[j].offset == i)
+            {
+              found = 0;
+              break;
+            }
+          }
+          if (found)
+          {
+            offset = i;
             break;
           }
         }
-        if (found)
-        {
-          offset = i;
-          break;
-        }
+        p->paging_info[a / PGSIZE].offset = offset;
+        goto finish;
       }
-      p->paging_info[a / PGSIZE].offset = offset;
-      goto finish;
-    }
-  not_none:
-#endif
+      not_none:
+  #endif
 
     mem = kalloc();
     if (mem == 0)
@@ -347,22 +331,23 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
       return 0;
     }
 
-#if !(SELECTION == NONE)
-    uint age = 0;
-    page = &p->paging_info[a / PGSIZE];
+    #if !(SELECTION == NONE)
+      uint age = 0;
+      page = &p->paging_info[a / PGSIZE];
 
-#if SELECTION == LAPA
-    age = 0xFFFFFFFF;
-#endif
+      #if SELECTION == LAPA
+        age = 0xFFFFFFFF;
+      #endif
 
-#if SELECTION == SCFIFO
-    enqueue(&p->queue, a / PGSIZE);
-#endif
+      #if SELECTION == SCFIFO
+        enqueue(&p->queue, a / PGSIZE);
+      #endif
 
-    page->age = age;
-    page->stored = 1;
-finish: ;
-#endif
+      page->age = age;
+      page->stored = 1;
+
+      finish: ;
+    #endif
   }
   return newsz;
 }
@@ -631,7 +616,7 @@ int calculate_SCFIFO_index()
     pte_t *pte = walk(p->pagetable, PGSIZE * (p->queue.q[p->queue.front]), 0);
 
     // if the access bit is turend on, give the page a second chance
-    if (PTE_A & PTE_FLAGS(*pte)) // TODO: check if works without PTE_FLAGS
+    if (PTE_A & *pte)
     {
       printf("removing accsesed bit from %d\n", p->queue.q[p->queue.front]); // TODO: remove or change
       front_to_rear(&p->queue); // move the front item to rear
@@ -650,11 +635,10 @@ void handle_page_fault()
 {
   struct proc *p = myproc();
   uint64 addr = r_stval();
-  pte_t *pte = walk(p->pagetable, PGROUNDDOWN(addr), 0); //TODO: check if PGROUNDDOWN is needed
+  pte_t *pte = walk(p->pagetable, PGROUNDDOWN(addr), 0);
 
   if ((pte != 0) && ((*pte & PTE_PG) != 0) &&
       ((*pte & PTE_V) == 0))
-
   {
     printf("Page Fault - Page was out of memory\n"); // TODO: remove or change
     // valid is off and page is in secondary memory - import page from Swapfile
@@ -677,102 +661,86 @@ void swap_pages(uint64 addr, pte_t *pte)
   int faulted_page_index = PGROUNDDOWN(addr) / PGSIZE;
   int offset = p->paging_info[faulted_page_index].offset; //offset of faulted page is swapfile
 
-  // TODO: if everything works, remove this if-else block
-  if (offset != -1)
+  char *faulted_page = kalloc();
+
+  if (faulted_page == 0)
   {
-    char *faulted_page = kalloc();
+    panic("kalloc");
+  }
 
-    // TODO: if everything works, remove this if block
-    if (faulted_page == 0)
+  if (readFromSwapFile(p, faulted_page, offset, PGSIZE) == -1)
+  {
+    printf("failed to read from Swapfile");
+  }
+
+  // get number of pages in main memory
+  int pages_in_main = 0;
+  struct page_data *page;
+  int i = 0; // TODO: remove
+
+  for (page = p->paging_info; page < &p->paging_info[MAX_TOTAL_PAGES]; page++)
+  {
+    if (page->stored == 1)
     {
-      panic("kalloc");
+      printf("pid %d , %d in memory, aging %d\n", myproc()->pid, i, page->age); // TODO: remove or change
+      pages_in_main++;
     }
+    i++; // TODO: remove
+  }
+  i = 0; // TODO: remove
 
-    // TODO: if everything works, replace this if block with:
-    // readFromSwapFule(p, faulted_page, faulting_address_offsed, PGSIZE);
-    if (readFromSwapFile(p, faulted_page, offset, PGSIZE) == -1)
-    {
-      printf("failed to read from Swapfile");
-    }
+  if (pages_in_main < MAX_PSYC_PAGES)
+  {
+    *pte = PA2PTE((uint64)faulted_page) | PTE_V;
+  }
+  else // swap pages from main memory to Swapfile
+  {
+    // now we write the page to the secondary memory (Swapfile).
+    int swapped_page_index = 0;
 
-    // get number of pages in main memory
-    int pages_in_main = 0;
-    struct page_data *page;
-    int i = 0; // TODO: remove
-
-    for (page = p->paging_info; page < &p->paging_info[MAX_TOTAL_PAGES]; page++)
-    {
-      if (page->stored == 1)
-      {
-        printf("pid %d , %d in memory, aging %d\n", myproc()->pid, i, page->age); // TODO: remove or change
-        pages_in_main++;
-      }
-      i++; // TODO: remove
-    }
-    i = 0; // TODO: remove
-
-    if (pages_in_main < MAX_PSYC_PAGES)
-    {
-      *pte = PA2PTE((uint64)faulted_page) | PTE_V;
-    }
-    else // swap pages from main memory to Swapfile
-    {
-      // now we write the page to the secondary memory (Swapfile).
-
-      // TODO: we need to swap pages according to replacement algorithms,
-      // now we will replace the first page only for checking task 1.
-      int swapped_page_index = 0;
-
-#if SELECTION == NFUA // Todo: change to ifdef
+    #if SELECTION == NFUA 
       swapped_page_index = calculate_NFUA_index();
-#endif
+    #endif
 
-#if SELECTION == LAPA // Todo: change to ifdef
+    #if SELECTION == LAPA 
       swapped_page_index = calculate_LAPA_index();
-#endif
+    #endif
 
-#if SELECTION == SCFIFO // Todo: change to ifdef
+    #if SELECTION == SCFIFO 
       swapped_page_index = calculate_SCFIFO_index();
-#endif
+    #endif
 
-      uint64 swapped_page_va = swapped_page_index * PGSIZE;
-
-      pte_t *swapped_page_entry = walk(p->pagetable, swapped_page_va, 0); //TODO: minimize to one line
-      uint64 swapped_page_PA = PTE2PA(*swapped_page_entry); 
-      printf("Chosen page %d. Data in chosen page is %s\n", swapped_page_index, swapped_page_PA); // TODO: remove or change
-      if (writeToSwapFile(p, (char *)swapped_page_PA, offset, PGSIZE) == -1)
-      {
-        printf("failed to write the swapped page to Swapfile");
-      }
-      *swapped_page_entry = (*swapped_page_entry & (~PTE_V)) | PTE_PG; // TODO: check PTE_PG
-      p->paging_info[swapped_page_index].stored = 0;
-      p->paging_info[swapped_page_index].offset = offset;
-
-      // set the faulted address entry in the main memory
-      *pte = PA2PTE((uint64)faulted_page) | (PTE_V | (~PTE_PG & PTE_FLAGS(*pte))); //TODO check if commutative
-                                                                                   // TODO: check PTE_PG
-      kfree((void *)swapped_page_PA);                                              // TODO: check if needed
+    pte_t *swapped_page_entry = walk(p->pagetable, swapped_page_index * PGSIZE, 0); 
+    uint64 swapped_page_PA = PTE2PA(*swapped_page_entry); 
+    printf("Chosen page %d. Data in chosen page is %s\n", swapped_page_index, swapped_page_PA); // TODO: remove or change
+    if (writeToSwapFile(p, (char *)swapped_page_PA, offset, PGSIZE) == -1)
+    {
+      printf("failed to write the swapped page to Swapfile");
     }
-    // page is no longer in Swapfile, so need to update
-    p->paging_info[faulted_page_index].stored = 1;
-    p->paging_info[faulted_page_index].offset = -1;
+    *swapped_page_entry = (*swapped_page_entry & (~PTE_V)) | PTE_PG; 
+    p->paging_info[swapped_page_index].stored = 0;
+    p->paging_info[swapped_page_index].offset = offset;
 
-    uint age = 0;
+    // set the faulted address entry in the main memory
+    *pte = PA2PTE((uint64)faulted_page) | (PTE_V | (~PTE_PG & PTE_FLAGS(*pte))); 
 
-#if SELECTION == LAPA
+    kfree((void *)swapped_page_PA); 
+  }
+  // page is no longer in Swapfile, so need to update
+  p->paging_info[faulted_page_index].stored = 1;
+  p->paging_info[faulted_page_index].offset = -1;
+
+  uint age = 0;
+
+  #if SELECTION == LAPA
     age = 0xFFFFFFFF;
-#endif
+  #endif
 
-#if SELECTION == SCFIFO
+  #if SELECTION == SCFIFO
     enqueue(&p->queue, faulted_page_index);
-#endif
+  #endif
 
-    p->paging_info[faulted_page_index].age = age;
+  p->paging_info[faulted_page_index].age = age;
 
-    sfence_vma(); // flush TLB
-  }
-  else // TODO: check if works then remove
-  {
-    printf("faulting address offset is not valid");
-  }
+  sfence_vma(); // flush TLB
 }

@@ -273,7 +273,7 @@ void userinit(void)
 
 // Grow or shrink user memory by n bytes.
 // Return 0 on success, -1 on failure.
-int growproc(int n) //TODO: maybe need to change
+int growproc(int n)
 {
   uint sz;
   struct proc *p = myproc();
@@ -327,7 +327,7 @@ int fork(void)
   acquire(&np->lock);
 
   // task 1.3 - copy parent's Swapfile to child
-  if (p != initproc) //TODO: check this!!
+  if (p != initproc)
   {
     for (int i = 0; i * PGSIZE < p->sz; i++)
     {
@@ -422,7 +422,7 @@ void exit(int status)
   if (p == initproc)
     panic("init exiting");
   // task 1.3
-  else //TODO: check this!!
+  else 
   {
     removeSwapFile(p);
   }
@@ -547,11 +547,11 @@ void scheduler(void)
         c->proc = p;
         swtch(&c->context, &p->context);
         // task 2 - update age field for each page_data in p->paging_info array
-        #if SELECTION == NFUA // Todo: change to ifdef
+        #if SELECTION == NFUA 
         update_age();
         #endif
 
-        #if SELECTION == LAPA // Todo: change to ifdef
+        #if SELECTION == LAPA 
         update_age();
         #endif
         // Process is done running for now.
