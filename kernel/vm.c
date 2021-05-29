@@ -345,7 +345,6 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     }
 
 #if !(SELECTION == NONE)
-  finish: ;
     uint age = 0;
     page = &p->paging_info[a / PGSIZE];
 
@@ -361,6 +360,7 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
     page->stored = 1;
 #endif
   }
+finish: ;
   return newsz;
 }
 
