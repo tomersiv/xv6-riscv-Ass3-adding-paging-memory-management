@@ -635,6 +635,11 @@ void handle_page_fault()
 {
   struct proc *p = myproc();
   uint64 addr = r_stval();
+  if (addr > p->sz)
+  {
+    exit(-1);
+  }
+  #if !(SELECTION == NONE)
   pte_t *pte = walk(p->pagetable, PGROUNDDOWN(addr), 0);
 
   if ((pte != 0) && ((*pte & PTE_PG) != 0) &&
@@ -644,10 +649,7 @@ void handle_page_fault()
     // valid is off and page is in secondary memory - import page from Swapfile
     swap_pages(addr, pte);
   }
-  else if (addr > p->sz)
-  {
-    exit(-1);
-  }
+  #endif
   else
   {
     // lazy allocation

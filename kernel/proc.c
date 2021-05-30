@@ -327,7 +327,7 @@ int fork(void)
   acquire(&np->lock);
 
   // task 1.3 - copy parent's Swapfile to child
-  if (p != initproc)
+  if (p != initproc) // I think it should be p->pid > 2
   {
     for (int i = 0; i * PGSIZE < p->sz; i++)
     {
@@ -424,7 +424,7 @@ void exit(int status)
   // task 1.3
   else 
   {
-    removeSwapFile(p);
+    removeSwapFile(p); // I think it should be p->pid > 2
   }
 
   // Close all open files.
