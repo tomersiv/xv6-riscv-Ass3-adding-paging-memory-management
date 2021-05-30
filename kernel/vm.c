@@ -637,7 +637,7 @@ void handle_page_fault()
   uint64 addr = r_stval();
   if (addr > p->sz)
   {
-    exit(-1);
+    p->killed = 1;
   }
   #if !(SELECTION == NONE)
   pte_t *pte = walk(p->pagetable, PGROUNDDOWN(addr), 0);
