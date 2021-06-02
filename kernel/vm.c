@@ -268,7 +268,9 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
       {
         if (page->stored)
         {
+          #if (DEBUG == 1)
           printf("pid %d , %d in memory, aging %d\n", myproc()->pid, i, page->age); // TODO: remove or change
+          #endif
           num_of_pages++;
         }
         i++; // TODO: remove or change
@@ -618,13 +620,17 @@ int calculate_SCFIFO_index()
     // if the access bit is turend on, give the page a second chance
     if (PTE_A & *pte)
     {
+      #if (DEBUG == 1)
       printf("removing accsesed bit from %d\n", p->queue.q[p->queue.front]); // TODO: remove or change
+      #endif
       front_to_rear(&p->queue); // move the front item to rear
       *pte &= ~PTE_A;           // turn off access bit
     }
     else
     {
+      #if (DEBUG == 1)
       printf("not accsesed %d \n", p->queue.q[p->queue.front]); // TODO: remove or change
+      #endif
       break;
     }
   }
@@ -645,7 +651,9 @@ void handle_page_fault()
   if ((pte != 0) && ((*pte & PTE_PG) != 0) &&
       ((*pte & PTE_V) == 0))
   {
+    #if (DEBUG == 1)
     printf("Page Fault - Page was out of memory\n"); // TODO: remove or change
+    #endif
     // valid is off and page is in secondary memory - import page from Swapfile
     swap_pages(addr, pte);
   }
@@ -684,7 +692,9 @@ void swap_pages(uint64 addr, pte_t *pte)
   {
     if (page->stored == 1)
     {
+      #if (DEBUG == 1)
       printf("pid %d , %d in memory, aging %d\n", myproc()->pid, i, page->age); // TODO: remove or change
+      #endif
       pages_in_main++;
     }
     i++; // TODO: remove
@@ -713,8 +723,10 @@ void swap_pages(uint64 addr, pte_t *pte)
     #endif
 
     pte_t *swapped_page_entry = walk(p->pagetable, swapped_page_index * PGSIZE, 0); 
-    uint64 swapped_page_PA = PTE2PA(*swapped_page_entry); 
+    uint64 swapped_page_PA = PTE2PA(*swapped_page_entry);
+    #if (DEBUG == 1) 
     printf("Chosen page %d. Data in chosen page is %s\n", swapped_page_index, swapped_page_PA); // TODO: remove or change
+    #endif
     if (writeToSwapFile(p, (char *)swapped_page_PA, offset, PGSIZE) == -1)
     {
       printf("failed to write the swapped page to Swapfile");
