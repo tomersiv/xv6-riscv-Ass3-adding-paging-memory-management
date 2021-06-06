@@ -28,16 +28,11 @@ OBJS = \
   $K/sysfile.o \
   $K/kernelvec.o \
   $K/plic.o \
-  $K/virtio_disk.o \
-  $K/queue.o
+  $K/virtio_disk.o
 
-  ifndef SELECTION
-  	SELECTION = SCFIFO
-  endif	
-
-  ifndef DEBUG
-  	DEBUG = 0
-  endif	
+ifndef SELECTION
+SELECTION := SCFIFO
+endif
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin
@@ -71,8 +66,7 @@ CFLAGS += -mcmodel=medany
 CFLAGS += -ffreestanding -fno-common -nostdlib -mno-relax
 CFLAGS += -I.
 CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
-CFLAGS += -D SELECTION=$(SELECTION)
-CFLAGS += -D DEBUG=$(DEBUG)
+CFLAGS += -D $(SELECTION)
 
 # Disable PIE when possible (for Ubuntu 16.10 toolchain)
 ifneq ($(shell $(CC) -dumpspecs 2>/dev/null | grep -e '[^f]no-pie'),)
@@ -126,7 +120,6 @@ mkfs/mkfs: mkfs/mkfs.c $K/fs.h $K/param.h
 # http://www.gnu.org/software/make/manual/html_node/Chained-Rules.html
 .PRECIOUS: %.o
 
-# TODO: test.c
 UPROGS=\
 	$U/_cat\
 	$U/_echo\
@@ -145,9 +138,8 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 	$U/_lazytests\
-	$U/_test\
-	$U/_ttt\
-    $U/_ttt2\
+	$U/_tests\
+	$U/_exec_test\
 
 
 fs.img: mkfs/mkfs README $(UPROGS)

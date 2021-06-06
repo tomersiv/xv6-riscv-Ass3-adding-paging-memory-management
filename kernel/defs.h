@@ -8,6 +8,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct page_data;
 
 // bio.c
 void            binit(void);
@@ -110,6 +111,10 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
+int             lazy_growproc(int n);
+int             swapfile_to_ram(uint64 va, pte_t *pte, int ram_arr_index);
+void            remove_page(struct page_data *page_data);
+int             count_pages(struct page_data *paging_info, int flag);
 
 // swtch.S
 void            swtch(struct context*, struct context*);
@@ -180,9 +185,11 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+pte_t *         walk(pagetable_t pagetable, uint64 va, int alloc);
+int             mappage(pagetable_t, uint64, uint64, int);
+int             lazy_alloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz);
 void            handle_page_fault(void);
-void            swap_pages(uint64 addr, pte_t *pte);   
-pte_t *         walk(pagetable_t pagetable, uint64 va, int alloc); 
+
 // plic.c
 void            plicinit(void);
 void            plicinithart(void);

@@ -9,8 +9,7 @@
 
 static int loadseg(pde_t *pgdir, uint64 addr, struct inode *ip, uint offset, uint sz);
 
-int
-exec(char *path, char **argv)
+int exec(char *path, char **argv)
 {
   char *s, *last;
   int i, off;
@@ -97,6 +96,40 @@ exec(char *path, char **argv)
   if(copyout(pagetable, sp, (char *)ustack, (argc+1)*sizeof(uint64)) < 0)
     goto bad;
 
+  #ifndef NONE
+    if (p->pid > 2){
+      for (int i = 0; i< MAX_PSYC_PAGES; i++){
+        remove_page(&p->ram[i]);
+        remove_page(&p->swap[i]);
+      }
+
+      struct page_data *page;
+      for (int i = 0; i * PGSIZE < sz; i++) {
+        page = &p->ram[i];
+        page->va = i * PGSIZE;
+        page->used = 1;
+        page->offset = -1;
+
+        #ifdef NFUA
+          page->age = 0;
+        #endif
+
+        #ifdef LAPA
+          page->age = 0xFFFFFFFF;
+        #endif 
+
+        #ifdef SCFIFO
+          page->fifo_time = p->fifo_counter++;
+        #endif
+
+        if (removeSwapFile(p) == -1)
+          panic("failure when trying to remove swapfile");
+        if (createSwapFile(p) == -1)
+          panic("failure when trying to create swapfile");
+      }
+    }
+  #endif
+
   // arguments to user main(argc, argv)
   // argc is returned via the system call return
   // value, which goes in a0.
@@ -107,7 +140,7 @@ exec(char *path, char **argv)
     if(*s == '/')
       last = s+1;
   safestrcpy(p->name, last, sizeof(p->name));
-    
+
   // Commit to the user image.
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;
@@ -115,7 +148,7 @@ exec(char *path, char **argv)
   p->trapframe->epc = elf.entry;  // initial program counter = main
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
-
+  
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:
@@ -132,8 +165,7 @@ exec(char *path, char **argv)
 // va must be page-aligned
 // and the pages from va to va+sz must already be mapped.
 // Returns 0 on success, -1 on failure.
-static int
-loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset, uint sz)
+static int loadseg(pagetable_t pagetable, uint64 va, struct inode *ip, uint offset, uint sz)
 {
   uint i, n;
   uint64 pa;

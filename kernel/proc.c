@@ -5,7 +5,6 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
-#include "queue.h"
 
 struct cpu cpus[NCPU];
 
@@ -31,16 +30,14 @@ struct spinlock wait_lock;
 // Allocate a page for each process's kernel stack.
 // Map it high in memory, followed by an invalid
 // guard page.
-void proc_mapstacks(pagetable_t kpgtbl)
-{
+void proc_mapstacks(pagetable_t kpgtbl) {
   struct proc *p;
-
-  for (p = proc; p < &proc[NPROC]; p++)
-  {
+  
+  for(p = proc; p < &proc[NPROC]; p++) {
     char *pa = kalloc();
-    if (pa == 0)
+    if(pa == 0)
       panic("kalloc");
-    uint64 va = KSTACK((int)(p - proc));
+    uint64 va = KSTACK((int) (p - proc));
     kvmmap(kpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
   }
 }
@@ -49,13 +46,12 @@ void proc_mapstacks(pagetable_t kpgtbl)
 void procinit(void)
 {
   struct proc *p;
-
+  
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
-  for (p = proc; p < &proc[NPROC]; p++)
-  {
-    initlock(&p->lock, "proc");
-    p->kstack = KSTACK((int)(p - proc));
+  for(p = proc; p < &proc[NPROC]; p++) {
+      initlock(&p->lock, "proc");
+      p->kstack = KSTACK((int) (p - proc));
   }
 }
 
@@ -70,18 +66,14 @@ int cpuid()
 
 // Return this CPU's cpu struct.
 // Interrupts must be disabled.
-struct cpu *
-mycpu(void)
-{
+struct cpu* mycpu(void) {
   int id = cpuid();
   struct cpu *c = &cpus[id];
   return c;
 }
 
 // Return the current struct proc *, or zero if none.
-struct proc *
-myproc(void)
-{
+struct proc* myproc(void) {
   push_off();
   struct cpu *c = mycpu();
   struct proc *p = c->proc;
@@ -89,10 +81,9 @@ myproc(void)
   return p;
 }
 
-int allocpid()
-{
+int allocpid() {
   int pid;
-
+  
   acquire(&pid_lock);
   pid = nextpid;
   nextpid = nextpid + 1;
@@ -105,20 +96,15 @@ int allocpid()
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
-static struct proc *
-allocproc(void)
-{
+static struct proc* allocproc(void) {
   struct proc *p;
 
-  for (p = proc; p < &proc[NPROC]; p++)
-  {
+  for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
-    if (p->state == UNUSED)
-    {
+    if(p->state == UNUSED) {
       goto found;
     }
-    else
-    {
+    else {
       release(&p->lock);
     }
   }
@@ -128,24 +114,16 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
-  // task 2 - initialize process queue
-  p->queue.size = 0;
-  p->queue.front = 0;
-  p->queue.rear = -1;
-
-  // task 1.3 - initialize paging info
-  struct page_data *data;
-  for (data = p->paging_info; data < &p->paging_info[MAX_TOTAL_PAGES]; data++)
-  {
-    data->offset = -1;
-    data->stored = 0;
-    data->age = 0;
-    p->queue.q[(int)(data - p->paging_info)] = -1;
-  }
+  #ifndef NONE
+    if (p->pid > 2){
+      release(&p->lock);
+      createSwapFile(p);
+      acquire(&p->lock);
+    }
+  #endif
 
   // Allocate a trapframe page.
-  if ((p->trapframe = (struct trapframe *)kalloc()) == 0)
-  {
+  if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
     release(&p->lock);
     return 0;
@@ -153,8 +131,7 @@ found:
 
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
-  if (p->pagetable == 0)
-  {
+  if(p->pagetable == 0){
     freeproc(p);
     release(&p->lock);
     return 0;
@@ -165,21 +142,31 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
-
+  
   return p;
 }
 
 // free a proc structure and the data hanging from it,
 // including user pages.
 // p->lock must be held.
-static void
-freeproc(struct proc *p)
+static void freeproc(struct proc *p)
 {
-  if (p->trapframe)
-    kfree((void *)p->trapframe);
+  if(p->trapframe)
+    kfree((void*)p->trapframe);
   p->trapframe = 0;
-  if (p->pagetable)
+  if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+
+  #ifndef NONE
+    if (p->pid > 2){
+        for (int i=0; i< MAX_PSYC_PAGES; i++){
+          remove_page(&p->ram[i]);
+          remove_page(&p->swap[i]);
+        }
+    }
+    p->fifo_counter = 0;
+  #endif
+
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -193,31 +180,28 @@ freeproc(struct proc *p)
 
 // Create a user page table for a given process,
 // with no user memory, but with trampoline pages.
-pagetable_t
-proc_pagetable(struct proc *p)
+pagetable_t proc_pagetable(struct proc *p)
 {
   pagetable_t pagetable;
 
   // An empty page table.
   pagetable = uvmcreate();
-  if (pagetable == 0)
+  if(pagetable == 0)
     return 0;
 
   // map the trampoline code (for system call return)
   // at the highest user virtual address.
   // only the supervisor uses it, on the way
   // to/from user space, so not PTE_U.
-  if (mappages(pagetable, TRAMPOLINE, PGSIZE,
-               (uint64)trampoline, PTE_R | PTE_X) < 0)
-  {
+  if(mappages(pagetable, TRAMPOLINE, PGSIZE,
+              (uint64)trampoline, PTE_R | PTE_X) < 0){
     uvmfree(pagetable, 0);
     return 0;
   }
 
   // map the trapframe just below TRAMPOLINE, for trampoline.S.
-  if (mappages(pagetable, TRAPFRAME, PGSIZE,
-               (uint64)(p->trapframe), PTE_R | PTE_W) < 0)
-  {
+  if(mappages(pagetable, TRAPFRAME, PGSIZE,
+              (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
     uvmunmap(pagetable, TRAMPOLINE, 1, 0);
     uvmfree(pagetable, 0);
     return 0;
@@ -238,13 +222,14 @@ void proc_freepagetable(pagetable_t pagetable, uint64 sz)
 // a user program that calls exec("/init")
 // od -t xC initcode
 uchar initcode[] = {
-    0x17, 0x05, 0x00, 0x00, 0x13, 0x05, 0x45, 0x02,
-    0x97, 0x05, 0x00, 0x00, 0x93, 0x85, 0x35, 0x02,
-    0x93, 0x08, 0x70, 0x00, 0x73, 0x00, 0x00, 0x00,
-    0x93, 0x08, 0x20, 0x00, 0x73, 0x00, 0x00, 0x00,
-    0xef, 0xf0, 0x9f, 0xff, 0x2f, 0x69, 0x6e, 0x69,
-    0x74, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00};
+  0x17, 0x05, 0x00, 0x00, 0x13, 0x05, 0x45, 0x02,
+  0x97, 0x05, 0x00, 0x00, 0x93, 0x85, 0x35, 0x02,
+  0x93, 0x08, 0x70, 0x00, 0x73, 0x00, 0x00, 0x00,
+  0x93, 0x08, 0x20, 0x00, 0x73, 0x00, 0x00, 0x00,
+  0xef, 0xf0, 0x9f, 0xff, 0x2f, 0x69, 0x6e, 0x69,
+  0x74, 0x00, 0x00, 0x24, 0x00, 0x00, 0x00, 0x00,
+  0x00, 0x00, 0x00, 0x00
+};
 
 // Set up first user process.
 void userinit(void)
@@ -253,15 +238,15 @@ void userinit(void)
 
   p = allocproc();
   initproc = p;
-
+  
   // allocate one user page and copy init's instructions
   // and data into it.
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
   // prepare for the very first "return" from kernel to user.
-  p->trapframe->epc = 0;     // user program counter
-  p->trapframe->sp = PGSIZE; // user stack pointer
+  p->trapframe->epc = 0;      // user program counter
+  p->trapframe->sp = PGSIZE;  // user stack pointer
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
@@ -275,20 +260,44 @@ void userinit(void)
 // Return 0 on success, -1 on failure.
 int growproc(int n)
 {
+  #ifdef NONE
+    return lazy_growproc(n);
+  #endif
+
   uint sz;
   struct proc *p = myproc();
 
   sz = p->sz;
-  if (n < 0)
-  {
+  if(n > 0){
+    if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+      return -1;
+    }
+  }
+  else if(n < 0){
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
-
-  // we use lazy allocation, so in case of n > 0 we only increase p->sz by n,
-  // allocation will take place when checking for page fault
-  p->sz += n;
+  p->sz = sz;
   return 0;
 }
+
+int lazy_growproc(int n)
+{
+  uint sz;
+  struct proc *p = myproc();
+  
+  sz = p->sz;
+  if(n > 0){
+    if((sz = lazy_alloc(p->pagetable, sz, sz + n)) == 0) {
+      return -1;
+    }
+  }
+  else if (n < 0){
+     sz = uvmdealloc(p->pagetable, sz, sz + n);   
+  }
+  p->sz = sz;
+  return 0;
+}
+
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
 int fork(void)
@@ -298,14 +307,12 @@ int fork(void)
   struct proc *p = myproc();
 
   // Allocate process.
-  if ((np = allocproc()) == 0)
-  {
+  if((np = allocproc()) == 0){
     return -1;
   }
 
   // Copy user memory from parent to child.
-  if (uvmcopy(p->pagetable, np->pagetable, p->sz) < 0)
-  {
+  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
     release(&np->lock);
     return -1;
@@ -318,64 +325,9 @@ int fork(void)
   // Cause fork to return 0 in the child.
   np->trapframe->a0 = 0;
 
-#if !(SELECTION == NONE)
-  release(&np->lock);
-  if (createSwapFile(np) != 0)
-  {
-    printf("failed to create Swapfile");
-  }
-  acquire(&np->lock);
-
-  // task 1.3 - copy parent's Swapfile to child
-  if (p != initproc) // TODO: I think it should be p->pid > 2
-  {
-    for (int i = 0; i * PGSIZE < p->sz; i++)
-    {
-      int offset = p->paging_info[i].offset;
-      if (offset != -1)
-      {
-        char *page = kalloc();
-        if (page == 0)
-        {
-          panic("kalloc");
-        }
-        release(&np->lock);
-        if (readFromSwapFile(p, page, offset, PGSIZE) == -1)
-        {
-          printf("failed to read from Swapfile");
-        }
-
-        if (writeToSwapFile(np, page, offset, PGSIZE) == -1)
-        {
-          printf("failed to write to Swapfile");
-        }
-
-        acquire(&np->lock);
-        kfree(page);
-      }
-    }
-  }
-#endif
-
-  // task 2 - copy parent's queue
-  np->queue.size = p->queue.size;
-  np->queue.front = p->queue.front;
-  np->queue.rear = p->queue.rear;
-
-  for (int i = 0; i < MAX_TOTAL_PAGES; i++)
-  {
-    // task 1.3 - copy parent's page data
-    np->paging_info[i].offset = p->paging_info[i].offset;
-    np->paging_info[i].stored = p->paging_info[i].stored;
-    np->paging_info[i].age = p->paging_info[i].age;
-
-    // task 2 - copy parent's queue paging indices
-    np->queue.q[i] = p->queue.q[i];
-  }
-
   // increment reference counts on open file descriptors.
-  for (i = 0; i < NOFILE; i++)
-    if (p->ofile[i])
+  for(i = 0; i < NOFILE; i++)
+    if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
 
@@ -384,6 +336,28 @@ int fork(void)
   pid = np->pid;
 
   release(&np->lock);
+
+  #ifndef NONE
+    if (p->pid > 2){
+      uint size = count_pages(p->swap, 0);
+
+      for (int i = 0; i < size; i++) {
+        char *page = kalloc();
+        
+        if ((readFromSwapFile(p, page, i * PGSIZE, PGSIZE)) == -1)
+        panic ("failed to read from swapfile");
+        if ((writeToSwapFile(np, page, i * PGSIZE, PGSIZE)) == -1)
+          panic("failed to write to swapfile");
+        
+        kfree(page);
+      }
+
+      memmove(np->ram, p->ram, 16 * sizeof(struct page_data));
+      memmove(np->swap, p->swap, 16 * sizeof(struct page_data));
+
+      np->fifo_counter = p->fifo_counter;
+    }
+  #endif
 
   acquire(&wait_lock);
   np->parent = p;
@@ -402,10 +376,8 @@ void reparent(struct proc *p)
 {
   struct proc *pp;
 
-  for (pp = proc; pp < &proc[NPROC]; pp++)
-  {
-    if (pp->parent == p)
-    {
+  for(pp = proc; pp < &proc[NPROC]; pp++){
+    if(pp->parent == p){
       pp->parent = initproc;
       wakeup(initproc);
     }
@@ -419,19 +391,19 @@ void exit(int status)
 {
   struct proc *p = myproc();
 
-  if (p == initproc)
+  if(p == initproc)
     panic("init exiting");
-  // task 1.3
-  else 
-  {
-    removeSwapFile(p); // TODO: I think it should be p->pid > 2
-  }
+
+  #ifndef NONE
+    if (p->pid > 2){
+      if (removeSwapFile(p) != 0)
+        panic("failed to remove swapfile");
+    }
+  #endif
 
   // Close all open files.
-  for (int fd = 0; fd < NOFILE; fd++)
-  {
-    if (p->ofile[fd])
-    {
+  for(int fd = 0; fd < NOFILE; fd++){
+    if(p->ofile[fd]){
       struct file *f = p->ofile[fd];
       fileclose(f);
       p->ofile[fd] = 0;
@@ -450,7 +422,7 @@ void exit(int status)
 
   // Parent might be sleeping in wait().
   wakeup(p->parent);
-
+  
   acquire(&p->lock);
 
   p->xstate = status;
@@ -473,25 +445,20 @@ int wait(uint64 addr)
 
   acquire(&wait_lock);
 
-  for (;;)
-  {
+  for(;;){
     // Scan through table looking for exited children.
     havekids = 0;
-    for (np = proc; np < &proc[NPROC]; np++)
-    {
-      if (np->parent == p)
-      {
+    for(np = proc; np < &proc[NPROC]; np++){
+      if(np->parent == p){
         // make sure the child isn't still in exit() or swtch().
         acquire(&np->lock);
 
         havekids = 1;
-        if (np->state == ZOMBIE)
-        {
+        if(np->state == ZOMBIE){
           // Found one.
           pid = np->pid;
-          if (addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
-                                   sizeof(np->xstate)) < 0)
-          {
+          if(addr != 0 && copyout(p->pagetable, addr, (char *)&np->xstate,
+                                  sizeof(np->xstate)) < 0) {
             release(&np->lock);
             release(&wait_lock);
             return -1;
@@ -506,14 +473,13 @@ int wait(uint64 addr)
     }
 
     // No point waiting if we don't have any children.
-    if (!havekids || p->killed)
-    {
+    if(!havekids || p->killed){
       release(&wait_lock);
       return -1;
     }
-
+    
     // Wait for a child to exit.
-    sleep(p, &wait_lock); //DOC: wait-sleep
+    sleep(p, &wait_lock);  //DOC: wait-sleep
   }
 }
 
@@ -528,31 +494,31 @@ void scheduler(void)
 {
   struct proc *p;
   struct cpu *c = mycpu();
-
+  
   c->proc = 0;
-  for (;;)
-  {
+  for(;;){
     // Avoid deadlock by ensuring that devices can interrupt.
     intr_on();
 
-    for (p = proc; p < &proc[NPROC]; p++)
-    {
+    for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
-      if (p->state == RUNNABLE)
-      {
+      if(p->state == RUNNABLE) {
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
         swtch(&c->context, &p->context);
-        // task 2 - update age field for each page_data in p->paging_info array
-        #if SELECTION == NFUA 
-        update_age();
+        #ifdef NFUA
+          if (p->pid > 2) {
+            update_age();
+          }
         #endif
 
-        #if SELECTION == LAPA 
-        update_age();
+        #ifdef LAPA
+          if (p->pid > 2) {
+            update_age();
+          }
         #endif
         // Process is done running for now.
         // It should have changed its p->state before coming back.
@@ -575,16 +541,17 @@ void sched(void)
   int intena;
   struct proc *p = myproc();
 
-  if (!holding(&p->lock))
+  if(!holding(&p->lock))
     panic("sched p->lock");
-  if (mycpu()->noff != 1)
+  if(mycpu()->noff != 1)
     panic("sched locks");
-  if (p->state == RUNNING)
+  if(p->state == RUNNING)
     panic("sched running");
-  if (intr_get())
+  if(intr_get())
     panic("sched interruptible");
 
   intena = mycpu()->intena;
+
   swtch(&p->context, &mycpu()->context);
   mycpu()->intena = intena;
 }
@@ -608,8 +575,7 @@ void forkret(void)
   // Still holding p->lock from scheduler.
   release(&myproc()->lock);
 
-  if (first)
-  {
+  if (first) {
     // File system initialization must be run in the context of a
     // regular process (e.g., because it calls sleep), and thus cannot
     // be run from main().
@@ -622,10 +588,9 @@ void forkret(void)
 
 // Atomically release lock and sleep on chan.
 // Reacquires lock when awakened.
-void sleep(void *chan, struct spinlock *lk)
-{
+void sleep(void *chan, struct spinlock *lk) {
   struct proc *p = myproc();
-
+  
   // Must acquire p->lock in order to
   // change p->state and then call sched.
   // Once we hold p->lock, we can be
@@ -633,7 +598,7 @@ void sleep(void *chan, struct spinlock *lk)
   // (wakeup locks p->lock),
   // so it's okay to release lk.
 
-  acquire(&p->lock); //DOC: sleeplock1
+  acquire(&p->lock);  //DOC: sleeplock1
   release(lk);
 
   // Go to sleep.
@@ -656,13 +621,10 @@ void wakeup(void *chan)
 {
   struct proc *p;
 
-  for (p = proc; p < &proc[NPROC]; p++)
-  {
-    if (p != myproc())
-    {
+  for(p = proc; p < &proc[NPROC]; p++) {
+    if(p != myproc()){
       acquire(&p->lock);
-      if (p->state == SLEEPING && p->chan == chan)
-      {
+      if(p->state == SLEEPING && p->chan == chan) {
         p->state = RUNNABLE;
       }
       release(&p->lock);
@@ -677,14 +639,11 @@ int kill(int pid)
 {
   struct proc *p;
 
-  for (p = proc; p < &proc[NPROC]; p++)
-  {
+  for(p = proc; p < &proc[NPROC]; p++){
     acquire(&p->lock);
-    if (p->pid == pid)
-    {
+    if(p->pid == pid){
       p->killed = 1;
-      if (p->state == SLEEPING)
-      {
+      if(p->state == SLEEPING){
         // Wake process from sleep().
         p->state = RUNNABLE;
       }
@@ -702,12 +661,10 @@ int kill(int pid)
 int either_copyout(int user_dst, uint64 dst, void *src, uint64 len)
 {
   struct proc *p = myproc();
-  if (user_dst)
-  {
+  if(user_dst){
     return copyout(p->pagetable, dst, src, len);
   }
-  else
-  {
+  else {
     memmove((char *)dst, src, len);
     return 0;
   }
@@ -719,13 +676,11 @@ int either_copyout(int user_dst, uint64 dst, void *src, uint64 len)
 int either_copyin(void *dst, int user_src, uint64 src, uint64 len)
 {
   struct proc *p = myproc();
-  if (user_src)
-  {
+  if(user_src){
     return copyin(p->pagetable, dst, src, len);
   }
-  else
-  {
-    memmove(dst, (char *)src, len);
+  else {
+    memmove(dst, (char*)src, len);
     return 0;
   }
 }
@@ -736,20 +691,20 @@ int either_copyin(void *dst, int user_src, uint64 src, uint64 len)
 void procdump(void)
 {
   static char *states[] = {
-      [UNUSED] "unused",
-      [SLEEPING] "sleep ",
-      [RUNNABLE] "runble",
-      [RUNNING] "run   ",
-      [ZOMBIE] "zombie"};
+  [UNUSED]    "unused",
+  [SLEEPING]  "sleep ",
+  [RUNNABLE]  "runble",
+  [RUNNING]   "run   ",
+  [ZOMBIE]    "zombie"
+  };
   struct proc *p;
   char *state;
 
   printf("\n");
-  for (p = proc; p < &proc[NPROC]; p++)
-  {
-    if (p->state == UNUSED)
+  for(p = proc; p < &proc[NPROC]; p++){
+    if(p->state == UNUSED)
       continue;
-    if (p->state >= 0 && p->state < NELEM(states) && states[p->state])
+    if(p->state >= 0 && p->state < NELEM(states) && states[p->state])
       state = states[p->state];
     else
       state = "???";
@@ -758,25 +713,100 @@ void procdump(void)
   }
 }
 
-void update_age() {
+int swapfile_to_ram(uint64 va, pte_t *pte, int ram_arr_index){
   struct proc *p = myproc();
 
-  for (int i = 0; i < MAX_TOTAL_PAGES; i++) {
-    uint va = PGSIZE * i;
-    pte_t *pte = walk(p->pagetable, va, 0);
-    
-    // if the page is in RAM (valid bit is on) shift it's age one bit to the right
-    if (PTE_V & *pte) {
-      uint new_age = p->paging_info[i].age;
-      new_age = new_age >> 1;
-
-      // if the page was just accessed turn off it's access bit and turn on the MSB
-      // in it's age
-      if (PTE_A & *pte) {
-        *pte = (~PTE_A) & *pte;
-        new_age = (1 << 31) | new_age;
-      }
-      p->paging_info[i].age = new_age;
+  // find the index of va in p->swap
+  int swap_arr_index = -1;
+  struct page_data *page_data;
+  for (page_data = p->swap; page_data < &p->swap[MAX_PSYC_PAGES]; page_data++) {
+    if (page_data->va == va) {
+      swap_arr_index = (int)(page_data - p->swap);
+      break;
     }
   }
+  if(swap_arr_index < 0)
+    panic("error: can't find page in swapfile");
+
+  // read the content from swapfile into ram
+  char *page = kalloc();
+  int off = swap_arr_index * PGSIZE;
+  if ((readFromSwapFile(p, page, off, PGSIZE)) == -1)
+    panic ("error when reading from swap file");
+
+  // add page to p->ram
+  page_data = &p->ram[ram_arr_index];
+
+  #ifdef SCFIFO
+    page_data->fifo_time = p->fifo_counter++;
+  #endif
+
+  #ifdef NFUA
+    page_data->age = 0;
+  #endif
+
+  #ifdef LAPA
+    page_data->age = 0xFFFFFFFF;
+  #endif
+
+  page_data->offset = -1;
+  page_data->va = va;
+  page_data->used = 1;
+  
+  // map virtual address and physical address
+  if(mappage(p->pagetable, va, (uint64)page, PTE_W | PTE_X | PTE_R | PTE_U) != 0){
+    kfree(page);
+    panic("mappage error");
+  }
+
+  // turn off PTE_PG bit and remove from p->swap
+  *pte &= ~(PTE_PG);
+  remove_page(&p->swap[swap_arr_index]);
+
+  // return the free index in swap_array
+  return swap_arr_index;
+}
+
+void update_age(){
+  struct page_data *page;
+  struct proc *p = myproc();
+
+  for(page = p->ram; page < &p->ram[MAX_PSYC_PAGES]; page++){
+    if(page->used){
+      pte_t *pte = walk(p->pagetable, page->va, 0);
+      
+      if (!(*pte & PTE_U))
+        continue;
+      
+      page->age >>= 1;
+
+      if (*pte & PTE_A){
+        page->age |= (1<<31);
+        *pte = *pte & ~(PTE_A);
+      }
+    }
+  }
+}
+
+void remove_page(struct page_data *page_data){
+  page_data->used = 0;
+  page_data->age = 0;
+  page_data->offset = -1;
+  page_data->va = -1;
+  page_data->fifo_time = 0;
+}
+
+int count_pages(struct page_data *paging_info, int flag){
+  struct page_data *page;
+  int i = 0;
+  for(page = paging_info; page < &paging_info[MAX_PSYC_PAGES]; page++){
+    if(page->used){
+      if(flag)
+      {
+      printf("pid %d , %d in memory, aging %d\n", myproc()->pid, (page->va) / PGSIZE, page->age); // TODO: remove or change
+      }
+      i++;
+    }
+  }
+  return i;
 }
